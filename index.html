@@ -645,14 +645,46 @@ textarea.form-control{resize:vertical;min-height:72px}
     <!-- ─── MY DEFECTS (DEVELOPER VIEW) ───────────────────────── -->
     <div id="page-devview" class="page">
       <div class="section-header">
-        <div>
-          <div class="section-title">🛠️ My Defects</div>
-          <div class="section-sub">Defects assigned to you that need resolution</div>
-        </div>
-        <select class="form-control" style="width:200px;" id="devViewFilter" onchange="renderDevView()">
+        <div><div class="section-title">🛠️ My Defects</div><div class="section-sub">Defects assigned to developers that need resolution</div></div>
+      </div>
+      <!-- Filter / sort bar -->
+      <div class="filter-bar" style="margin-bottom:16px;">
+        <span class="filter-label">Developer:</span>
+        <select id="devViewFilter" onchange="renderDevView()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
           <option value="">All Developers</option>
         </select>
+        <span class="filter-label" style="margin-left:8px;">Priority:</span>
+        <select id="devPriFilter" onchange="renderDevView()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
+          <option value="">All Priorities</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+        <span class="filter-label" style="margin-left:8px;">Status:</span>
+        <select id="devStatusFilter" onchange="renderDevView()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
+          <option value="">All Statuses</option>
+          <option value="Fail">Fail</option>
+          <option value="Blocked">Blocked</option>
+          <option value="Pending Development">Pending Development</option>
+          <option value="New Development">New Development</option>
+        </select>
+        <span class="filter-label" style="margin-left:8px;">Issue Type:</span>
+        <select id="devIssueFilter" onchange="renderDevView()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
+          <option value="">All</option>
+          <option value="main">Initial Defect</option>
+          <option value="retest">Retest Failure</option>
+        </select>
+        <span class="filter-label" style="margin-left:8px;">Sort:</span>
+        <select id="devSortBy" onchange="renderDevView()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
+          <option value="priority">Priority (High first)</option>
+          <option value="id">Test ID</option>
+          <option value="status">Status</option>
+          <option value="resolve">Resolve Status</option>
+          <option value="app">Application</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="clearDevFilters()" style="margin-left:auto;">✕ Clear</button>
       </div>
+      <div id="devSummaryBar" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;"></div>
       <div id="devViewBody"></div>
     </div>
 
@@ -2551,137 +2583,196 @@ function renderChronicFailures(){
 }
 
 // ─── DEVELOPER VIEW ───────────────────────────────────────────
+function clearDevFilters() {
+  ['devViewFilter','devPriFilter','devStatusFilter','devIssueFilter'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value = '';
+  });
+  const sort = document.getElementById('devSortBy'); if(sort) sort.value = 'priority';
+  renderDevView();
+}
+
 function renderDevView() {
   const el = document.getElementById('devViewBody');
   if(!el) return;
 
-  // Populate developer filter dropdown
+  // Populate developer dropdown
   const sel = document.getElementById('devViewFilter');
   if(sel) {
-    const allDevs = [...DB.config.feDev, ...DB.config.beDev, ...DB.config.valDev]
+    const allDevs = [...DB.config.feDev,...DB.config.beDev,...DB.config.valDev]
       .filter((v,i,a) => v && a.indexOf(v)===i).sort();
     const cur = sel.value;
     sel.innerHTML = '<option value="">All Developers</option>' +
-      allDevs.map(d => `<option value="${d}"${d===cur?' selected':''}>${d}</option>`).join('');
+      allDevs.map(d=>`<option value="${d}"${d===cur?' selected':''}>${d}</option>`).join('');
   }
 
-  const filterDev = document.getElementById('devViewFilter')?.value || '';
+  const filterDev    = document.getElementById('devViewFilter')?.value   || '';
+  const filterPri    = document.getElementById('devPriFilter')?.value    || '';
+  const filterStatus = document.getElementById('devStatusFilter')?.value || '';
+  const filterIssue  = document.getElementById('devIssueFilter')?.value  || '';
+  const sortBy       = document.getElementById('devSortBy')?.value       || 'priority';
 
-  // A test needs developer attention if:
-  // 1. Main test: status is Fail/Blocked AND resolveStatus is not Completed/Not Applicable
-  // 2. Retest cycle: retestStatus is Fail AND cycle resolveStatus is not Completed
+  const priOrder = {'High':0,'Medium':1,'Low':2,'':3};
+
   function getDefectsForDev(devName) {
     const defects = [];
     DB.tests.forEach(t => {
       const isAssigned = t.feDev===devName || t.beDev===devName || t.valDev===devName;
       if(!isAssigned) return;
-
-      const roles = [];
-      if(t.feDev===devName)  roles.push('FE');
-      if(t.beDev===devName)  roles.push('BE');
+      const roles=[];
+      if(t.feDev===devName) roles.push('FE');
+      if(t.beDev===devName) roles.push('BE');
       if(t.valDev===devName) roles.push('Val');
-
-      // Check main test — Fail or Blocked, resolve not done
       const mainNeedsWork = ['Fail','Blocked','Pending Development','New Development'].includes(t.status)
         && !['Completed','Not Applicable'].includes(t.resolveStatus);
-
-      // Check latest retest cycle
       const lc = latestCycle(t);
-      const cycleNeedsWork = lc && ['Fail','Failed'].includes(lc.retestStatus)
-        && lc.resolveStatus !== 'Completed';
+      const cycleNeedsWork = lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus!=='Completed';
+      if(!mainNeedsWork && !cycleNeedsWork) return;
 
-      if(mainNeedsWork || cycleNeedsWork) {
-        defects.push({ test:t, roles, mainNeedsWork, cycleNeedsWork, lc });
-      }
+      const pri = (cycleNeedsWork ? lc?.retestPriority : t.priority) || '';
+      const resolveDisplay = cycleNeedsWork ? (lc?.resolveStatus||'') : (t.resolveStatus||'');
+      const issueType = cycleNeedsWork ? 'retest' : 'main';
+
+      // Apply filters
+      if(filterPri    && pri !== filterPri) return;
+      if(filterStatus && t.status !== filterStatus) return;
+      if(filterIssue  && issueType !== filterIssue) return;
+
+      defects.push({ test:t, roles, mainNeedsWork, cycleNeedsWork, lc, pri, resolveDisplay, issueType });
+    });
+
+    // Sort
+    defects.sort((a,b) => {
+      if(sortBy==='priority') return (priOrder[a.pri]??3)-(priOrder[b.pri]??3);
+      if(sortBy==='id')       return a.test.id.localeCompare(b.test.id);
+      if(sortBy==='status')   return a.test.status.localeCompare(b.test.status);
+      if(sortBy==='resolve')  return a.resolveDisplay.localeCompare(b.resolveDisplay);
+      if(sortBy==='app')      return (a.test.appId||'').localeCompare(b.test.appId||'');
+      return 0;
     });
     return defects;
   }
 
-  const allDevs = [...DB.config.feDev, ...DB.config.beDev, ...DB.config.valDev]
+  const allDevs = [...DB.config.feDev,...DB.config.beDev,...DB.config.valDev]
     .filter((v,i,a) => v && a.indexOf(v)===i).sort();
-
   const devsToShow = filterDev ? [filterDev] : allDevs;
 
   if(!DB.tests.length) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🛠️</div><p>No tests imported yet.</p></div>`;
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">🛠️</div><p>No tests imported yet.</p></div>`;
     return;
   }
+
+  // Build summary counts
+  let totalHigh=0, totalMedium=0, totalLow=0, totalNoPri=0, grandTotal=0;
+  const allDefects = devsToShow.flatMap(d => getDefectsForDev(d));
+  allDefects.forEach(d => {
+    grandTotal++;
+    if(d.pri==='High') totalHigh++;
+    else if(d.pri==='Medium') totalMedium++;
+    else if(d.pri==='Low') totalLow++;
+    else totalNoPri++;
+  });
+
+  // Summary stat bar
+  const summaryBar = document.getElementById('devSummaryBar');
+  if(summaryBar) {
+    summaryBar.innerHTML = grandTotal===0 ? '' : `
+      <div class="card" style="padding:10px 16px;display:flex;gap:20px;flex-wrap:wrap;align-items:center;width:100%;">
+        <span style="font-size:13px;color:var(--text2);">Total open: <strong style="color:var(--text);font-family:var(--font-mono);">${grandTotal}</strong></span>
+        ${totalHigh   ?`<span style="font-size:12px;">🔴 High: <strong style="color:var(--red);font-family:var(--font-mono);">${totalHigh}</strong></span>`:''}
+        ${totalMedium ?`<span style="font-size:12px;">🟡 Medium: <strong style="color:var(--yellow);font-family:var(--font-mono);">${totalMedium}</strong></span>`:''}
+        ${totalLow    ?`<span style="font-size:12px;">🟢 Low: <strong style="color:var(--green);font-family:var(--font-mono);">${totalLow}</strong></span>`:''}
+        ${totalNoPri  ?`<span style="font-size:12px;color:var(--text3);">No priority: ${totalNoPri}</span>`:''}
+      </div>`;
+  }
+
+  const roleColor = {'FE':'var(--accent)','BE':'var(--green)','Val':'var(--purple)'};
 
   let totalDefects = 0;
   const html = devsToShow.map(devName => {
     const defects = getDefectsForDev(devName);
     totalDefects += defects.length;
 
-    const roleColor = {'FE':'var(--accent)','BE':'var(--green)','Val':'var(--purple)'};
-
-    if(!defects.length) return `
-      <div class="card" style="margin-bottom:16px;opacity:.5;">
+    if(!defects.length) {
+      // Only show "no defects" card when viewing a specific developer
+      if(!filterDev) return '';
+      return `<div class="card" style="margin-bottom:16px;">
         <div style="display:flex;align-items:center;gap:12px;">
           <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:white;font-family:var(--font-mono);flex-shrink:0;">
             ${devName.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}
           </div>
           <div><div style="font-size:14px;font-weight:600;">${escHtml(devName)}</div>
-          <div style="font-size:12px;color:var(--green);">✅ No open defects</div></div>
-        </div>
-      </div>`;
+          <div style="font-size:12px;color:var(--green);">✅ No open defects matching current filters</div></div>
+        </div></div>`;
+    }
 
-    return `
-      <div class="card" style="margin-bottom:20px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
-          <div style="display:flex;align-items:center;gap:12px;">
-            <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:white;font-family:var(--font-mono);flex-shrink:0;">
-              ${devName.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}
-            </div>
-            <div>
-              <div style="font-size:15px;font-weight:600;">${escHtml(devName)}</div>
-              <div style="font-size:12px;color:var(--text3);">
-                ${[...new Set(defects.flatMap(d=>d.roles))].map(r=>`<span style="color:${roleColor[r]};margin-right:6px;">${r}</span>`).join('')}
-              </div>
+    // Mini priority breakdown per developer
+    const devHigh   = defects.filter(d=>d.pri==='High').length;
+    const devMed    = defects.filter(d=>d.pri==='Medium').length;
+    const devLow    = defects.filter(d=>d.pri==='Low').length;
+
+    return `<div class="card" style="margin-bottom:20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:white;font-family:var(--font-mono);flex-shrink:0;">
+            ${devName.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}
+          </div>
+          <div>
+            <div style="font-size:15px;font-weight:600;">${escHtml(devName)}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;">
+              ${[...new Set(defects.flatMap(d=>d.roles))].map(r=>`<span style="color:${roleColor[r]};margin-right:8px;">${r}</span>`).join('')}
             </div>
           </div>
-          <span class="badge badge-fail" style="font-size:13px;padding:4px 12px;">${defects.length} open defect${defects.length!==1?'s':''}</span>
         </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          ${devHigh ?`<span class="badge badge-high"  >🔴 ${devHigh} High</span>`:''}
+          ${devMed  ?`<span class="badge badge-medium">🟡 ${devMed} Medium</span>`:''}
+          ${devLow  ?`<span class="badge badge-low"   >🟢 ${devLow} Low</span>`:''}
+          <span class="badge badge-fail" style="font-size:12px;padding:3px 10px;">${defects.length} total</span>
+        </div>
+      </div>
 
-        <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th>Test ID</th><th>Application</th><th>Section</th>
-              <th>Test Script</th><th>Status</th><th>Issue</th>
-              <th>Resolve Status</th><th>Priority</th><th>Action</th>
-            </tr></thead>
-            <tbody>
-              ${defects.map(({test:t, roles, mainNeedsWork, cycleNeedsWork, lc}) => {
-                const app = DB.applications.find(a=>a.id===t.appId);
-                const issue = cycleNeedsWork
-                  ? `Retest Cycle ${lc.cycleNum} failed — fix needed`
-                  : `${t.status} — awaiting resolution`;
-                const resolveDisplay = cycleNeedsWork
-                  ? (lc.resolveStatus || 'Not set')
-                  : (t.resolveStatus || 'Not set');
-                const pri = cycleNeedsWork ? lc.retestPriority : t.priority;
-                return `<tr>
-                  <td class="td-mono">${t.id}</td>
-                  <td style="font-size:11px;color:var(--text2);">${app?.name||t.appId}</td>
-                  <td style="font-size:11px;color:var(--text2);">${t.section||'—'}</td>
-                  <td class="td-truncate" style="max-width:180px;" title="${escHtml(t.script)}">${escHtml(t.script)}</td>
-                  <td>${statusBadge(t.status)}</td>
-                  <td style="font-size:11px;color:var(--yellow);">${issue}</td>
-                  <td>${statusBadge(resolveDisplay)}</td>
-                  <td>${pri?priorityBadge(pri):'<span style="color:var(--text3)">—</span>'}</td>
-                  <td><button class="btn-icon" onclick="openEditModal('${t.id}');switchTestTab('resolve',null)" title="Open & resolve">🔧</button></td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>`;
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Test ID</th><th>Application</th><th>Section</th>
+            <th>Test Script</th><th>Status</th><th>Issue Type</th>
+            <th>Resolve Status</th><th>Priority</th><th>Tester Notes</th><th>Action</th>
+          </tr></thead>
+          <tbody>
+            ${defects.map(({test:t, roles, cycleNeedsWork, lc, pri, resolveDisplay, issueType}) => {
+              const app = DB.applications.find(a=>a.id===t.appId);
+              const issueLbl = cycleNeedsWork
+                ? `<span class="badge badge-pendingdev">Retest Cycle ${lc.cycleNum} Fail</span>`
+                : `<span class="badge badge-fail">Initial Defect</span>`;
+              const testerNote = cycleNeedsWork ? (lc?.remarks||'—') : (t.remarks||'—');
+              const rowBg = pri==='High'?'background:rgba(247,95,95,.05);':
+                            pri==='Medium'?'background:rgba(247,201,72,.04);':'';
+              return `<tr style="${rowBg}">
+                <td class="td-mono">${t.id}</td>
+                <td style="font-size:11px;color:var(--text2);">${app?.name||t.appId}</td>
+                <td style="font-size:11px;color:var(--text2);">${t.section||'—'}</td>
+                <td class="td-truncate" style="max-width:160px;" title="${escHtml(t.script)}">${escHtml(t.script)}</td>
+                <td>${statusBadge(t.status)}</td>
+                <td>${issueLbl}</td>
+                <td>${resolveDisplay?statusBadge(resolveDisplay):'<span style="color:var(--text3)">—</span>'}</td>
+                <td>${pri?priorityBadge(pri):'<span style="color:var(--text3)">—</span>'}</td>
+                <td class="td-truncate" style="max-width:140px;font-size:11px;color:var(--text2);" title="${escHtml(testerNote)}">${escHtml(testerNote)}</td>
+                <td style="white-space:nowrap;">
+                  <button class="btn-icon" onclick="openEditModal('${t.id}');switchTestTab('resolve',null)" title="Go to Resolve tab">🔧 Fix</button>
+                  <button class="btn-icon" onclick="openEditModal('${t.id}');switchTestTab('basic',null)" title="View full test" style="margin-left:4px;">👁</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
   }).join('');
 
-  el.innerHTML = html || `<div class="empty-state"><div class="empty-icon">🎉</div><p>No open defects for any developer.</p></div>`;
+  el.innerHTML = html.trim() || `<div class="empty-state"><div class="empty-icon">🎉</div><p>No open defects match the current filters.</p></div>`;
 
-  // Update badge
   const badge = document.getElementById('myDefectsBadge');
-  if(badge) { badge.textContent = totalDefects; badge.style.display = totalDefects ? '' : 'none'; }
+  if(badge) { badge.textContent = totalDefects; badge.style.display=totalDefects?'':'none'; }
 }
 
 // ─── DASHBOARD ─────────────────────────────────────────────────
