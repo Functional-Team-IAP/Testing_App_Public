@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QA Nexus — Testing Tracker</title>
+<title>Testing Application — IAP Inc</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
@@ -327,7 +327,7 @@ textarea.form-control{resize:vertical;min-height:72px}
   <div class="login-box">
     <div class="login-logo">
       <div class="logo-icon" style="width:44px;height:44px;background:linear-gradient(135deg,var(--accent),var(--purple));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:white;flex-shrink:0;">Q</div>
-      <div><div class="login-title">QA Nexus</div><div class="login-sub">TESTING TRACKER</div></div>
+      <div><div class="login-title">IAP Inc</div><div class="login-sub">TESTING APPLICATION</div></div>
     </div>
     <div id="loginStep1">
       <div class="form-group">
@@ -358,7 +358,7 @@ textarea.form-control{resize:vertical;min-height:72px}
 <nav id="sidebar">
   <div class="sidebar-logo">
     <div class="logo-icon">Q</div>
-    <div><div class="logo-text">QA Nexus</div><div class="logo-sub">Testing Tracker</div></div>
+    <div><div class="logo-text">IAP Inc</div><div class="logo-sub">Testing Application</div></div>
   </div>
   <div class="app-switcher">
     <div class="app-switcher-label">Filter Scope</div>
@@ -386,6 +386,10 @@ textarea.form-control{resize:vertical;min-height:72px}
       <span class="nav-icon">🔥</span> Chronic Failures
       <span class="nav-badge orange" id="chronicBadge" style="display:none">0</span>
     </div>
+    <div class="nav-item" onclick="navigate('devview')" data-page="devview">
+      <span class="nav-icon">🛠️</span> My Defects
+      <span class="nav-badge" id="myDefectsBadge" style="display:none">0</span>
+    </div>
     <div class="nav-section-label">Data</div>
     <div class="nav-item" onclick="navigate('bulk')" data-page="bulk"><span class="nav-icon">⬆</span> Bulk Upload</div>
     <div class="nav-section-label">System</div>
@@ -396,7 +400,7 @@ textarea.form-control{resize:vertical;min-height:72px}
 <!-- ═══ MAIN ════════════════════════════════════════════════════ -->
 <div id="main">
   <div id="topbar">
-    <div class="topbar-breadcrumb" id="breadcrumb">QA Nexus / <span>Dashboard</span></div>
+    <div class="topbar-breadcrumb" id="breadcrumb">IAP Inc / <span>Dashboard</span></div>
     <div class="topbar-search">
       <span>🔍</span>
       <input type="text" id="globalSearch" placeholder="Global search across all tests…" oninput="onGlobalSearch()">
@@ -535,7 +539,7 @@ textarea.form-control{resize:vertical;min-height:72px}
       </div>
 
       <div class="card" style="margin-bottom:16px;">
-        <div class="card-title">📋 Required Column Format (26 columns, tab or comma separated)</div>
+        <div class="card-title">📋 Required Column Format (27 columns, tab or comma separated)</div>
         <div style="margin-top:10px;overflow-x:auto;">
           <table style="font-size:11px;font-family:var(--font-mono);white-space:nowrap;border-collapse:collapse;">
             <tr>
@@ -547,29 +551,31 @@ textarea.form-control{resize:vertical;min-height:72px}
               ['A / 0','Application Name','Must match an existing application name exactly'],
               ['B / 1','Test Type','Auto-added to module if new'],
               ['C / 2','Section','Auto-added to application if new'],
-              ['D / 3','Test Script','Required — rows without this are skipped'],
-              ['E / 4','Expected Result',''],
-              ['F / 5','Actual Result',''],
-              ['G / 6','Status','e.g. Pass, Fail, Blocked, Not Started'],
-              ['H / 7','Complexity','e.g. Low, Medium, High, Critical'],
-              ['I / 8','Priority','e.g. High, Medium, Low'],
-              ['J / 9','Start Date','mm/dd/yyyy or yyyy-mm-dd'],
-              ['K / 10','Tester Remarks / Notes',''],
-              ['L / 11','Attachment / Screenshot Link','URL'],
-              ['M / 12','Test Execution Date','mm/dd/yyyy or yyyy-mm-dd'],
-              ['N / 13','Tester Name',''],
-              ['O / 14','Front End Developer',''],
-              ['P / 15','Back End Developer',''],
-              ['Q / 16','Validation Developer',''],
-              ['R / 17','Developer Notes',''],
-              ['S / 18','Resolved Date','mm/dd/yyyy or yyyy-mm-dd'],
-              ['T / 19','Resolve Status','Not Started / In Progress / Completed'],
-              ['U / 20','Retest Date','mm/dd/yyyy or yyyy-mm-dd → maps to Retest Cycle 1'],
-              ['V / 21','Retest Status','Pending / Passed / Failed etc.'],
-              ['W / 22','Retest Remarks / Notes',''],
-              ['X / 23','Resolve Priority','High / Medium / Low'],
-              ['Y / 24','Restest Resolved Date','mm/dd/yyyy or yyyy-mm-dd (note: matches your Excel header spelling)'],
-              ['Z / 25','Retest Resolve Status',''],
+              ['C / 2','Connecting System','e.g. All, IAP RGM, SAP RGM'],
+              ['D / 3','Section','Auto-added to application if new'],
+              ['E / 4','Test Script','Required — rows without this are skipped'],
+              ['F / 5','Expected Result',''],
+              ['G / 6','Actual Result',''],
+              ['H / 7','Status','e.g. Pass, Fail, Blocked, Not Started'],
+              ['I / 8','Complexity','e.g. Low, Medium, High, Critical'],
+              ['J / 9','Priority','e.g. High, Medium, Low'],
+              ['K / 10','Start Date','mm/dd/yyyy or yyyy-mm-dd'],
+              ['L / 11','Tester Remarks / Notes',''],
+              ['M / 12','Attachment / Screenshot Link','URL'],
+              ['N / 13','Test Execution Date','mm/dd/yyyy or yyyy-mm-dd'],
+              ['O / 14','Tester Name',''],
+              ['P / 15','Front End Developer',''],
+              ['Q / 16','Back End Developer',''],
+              ['R / 17','Validation Developer',''],
+              ['S / 18','Developer Notes',''],
+              ['T / 19','Resolved Date','mm/dd/yyyy or yyyy-mm-dd'],
+              ['U / 20','Resolve Status','Not Started / In Progress / Completed'],
+              ['V / 21','Retest Date','mm/dd/yyyy or yyyy-mm-dd → maps to Retest Cycle 1'],
+              ['W / 22','Retest Status','Not Started / In Progress / Pass / Fail'],
+              ['X / 23','Retest Priority','High / Medium / Low'],
+              ['Y / 24','Retest Remarks / Notes',''],
+              ['Z / 25','Restest Resolved Date','mm/dd/yyyy or yyyy-mm-dd'],
+              ['AA / 26','Retest Resolve Status',''],
             ].map(([col,name,note])=>`<tr>
               <td style="padding:3px 8px;border:1px solid var(--border);color:var(--accent);">${col}</td>
               <td style="padding:3px 8px;border:1px solid var(--border);color:var(--text);">${name}</td>
@@ -634,6 +640,20 @@ textarea.form-control{resize:vertical;min-height:72px}
           <div id="bulkResultMsg"></div>
         </div>
       </div>
+    </div>
+
+    <!-- ─── MY DEFECTS (DEVELOPER VIEW) ───────────────────────── -->
+    <div id="page-devview" class="page">
+      <div class="section-header">
+        <div>
+          <div class="section-title">🛠️ My Defects</div>
+          <div class="section-sub">Defects assigned to you that need resolution</div>
+        </div>
+        <select class="form-control" style="width:200px;" id="devViewFilter" onchange="renderDevView()">
+          <option value="">All Developers</option>
+        </select>
+      </div>
+      <div id="devViewBody"></div>
     </div>
 
     <!-- ─── CONFIGURATION ─────────────────────────────────────── -->
@@ -950,7 +970,7 @@ function populateLoginNames() {
   sel.innerHTML = '<option value="">— Select your name —</option>' +
     names.map(n => `<option value="${n}">${n}</option>`).join('');
   // Pre-select if remembered
-  const last = localStorage.getItem('gh_user');
+  const last = localStorage.getItem('iap_user');
   if(last && names.includes(last)) sel.value = last;
 }
 
@@ -959,7 +979,7 @@ function doLogin() {
   if(!name){ showLoginError('Please select your name.'); return; }
   if(!ghConfigured()){ showLoginError('Please fill in GitHub settings below first.'); return; }
   currentUser = name;
-  localStorage.setItem('gh_user', name);
+  localStorage.setItem('iap_user', name);
   document.getElementById('loginOverlay').style.display = 'none';
   document.getElementById('userNameDisplay').textContent = name;
   const av = document.getElementById('userAvatar');
@@ -1008,7 +1028,7 @@ function showSync(state, msg) {
 // ─── PERSISTENCE — GitHub API ──────────────────────────────────
 function save() {
   // Always keep a local copy as fallback
-  localStorage.setItem('qa_nexus_db', JSON.stringify(DB));
+  localStorage.setItem('iap_testing_db', JSON.stringify(DB));
   // Debounce GitHub saves — wait 1.5s of inactivity before pushing
   clearTimeout(saveTimer);
   saveTimer = setTimeout(pushToGitHub, 1500);
@@ -1022,7 +1042,7 @@ async function pushToGitHub() {
     const encoded = btoa(unescape(encodeURIComponent(body)));
     const url = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH_FILE}`;
     const payload = {
-      message: `QA Nexus update by ${currentUser||'system'} on ${today()}`,
+      message: `IAP Testing App update by ${currentUser||'system'} on ${today()}`,
       content: encoded,
       ...(GH.sha ? { sha: GH.sha } : {})
     };
@@ -1095,7 +1115,7 @@ async function loadFromGitHub() {
 }
 
 function load() {
-  const raw = localStorage.getItem('qa_nexus_db');
+  const raw = localStorage.getItem('iap_testing_db');
   if (!raw) return;
   try {
     const p = JSON.parse(raw);
@@ -1203,7 +1223,7 @@ function isChronic(t)  { return cycleCount(t)>=3; }
 
 // ─── NAVIGATION ───────────────────────────────────────────────
 const PAGE_LABELS = {
-  dashboard:'Dashboard',apps:'Applications',tests:'Test Tracker',
+  dashboard:'Dashboard',apps:'Applications',tests:'Test Tracker',devview:'My Defects',
   retest:'Retest Queue',blocked:'Blocked Tests',chronic:'Chronic Failures',
   bulk:'Bulk Upload',config:'Configuration'
 };
@@ -1213,7 +1233,7 @@ function navigate(page) {
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   document.querySelector(`.nav-item[data-page="${page}"]`).classList.add('active');
-  document.getElementById('breadcrumb').innerHTML = `QA Nexus / <span>${PAGE_LABELS[page]}</span>`;
+  document.getElementById('breadcrumb').innerHTML = `IAP Inc / <span>${PAGE_LABELS[page]}</span>`;
   if(page==='dashboard') renderDashboard();
   if(page==='apps')      renderApps();
   if(page==='tests')     { populateFilters(); renderTestTable(); }
@@ -1222,6 +1242,15 @@ function navigate(page) {
   if(page==='chronic')   renderChronicFailures();
   if(page==='bulk')      { /* bulk page is self-contained */ }
   if(page==='config')    renderConfig();
+  if(page==='devview') {
+    // Pre-select logged-in user if they are a developer
+    const sel = document.getElementById('devViewFilter');
+    if(sel && currentUser) {
+      const allDevs = [...DB.config.feDev,...DB.config.beDev,...DB.config.valDev];
+      if(allDevs.includes(currentUser)) sel.value = currentUser;
+    }
+    renderDevView();
+  }
 }
 
 // ─── GLOBAL APP FILTER ────────────────────────────────────────
@@ -1338,6 +1367,15 @@ function updateBadges() {
   setBadge('retestBadge', retestCount);
   setBadge('blockedBadge', blockedCount);
   setBadge('chronicBadge', chronicCount);
+  // Dev defects badge — count all tests needing dev attention
+  const devDefectCount = DB.tests.filter(t => {
+    const needsWork = ['Fail','Blocked','Pending Development','New Development'].includes(t.status)
+      && !['Completed','Not Applicable'].includes(t.resolveStatus);
+    const lc = latestCycle(t);
+    const cycleNeedsWork = lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus !== 'Completed';
+    return needsWork || cycleNeedsWork;
+  }).length;
+  setBadge('myDefectsBadge', devDefectCount);
 }
 function setBadge(id,n) {
   const el=document.getElementById(id);
@@ -2512,6 +2550,140 @@ function renderChronicFailures(){
   }).join('');
 }
 
+// ─── DEVELOPER VIEW ───────────────────────────────────────────
+function renderDevView() {
+  const el = document.getElementById('devViewBody');
+  if(!el) return;
+
+  // Populate developer filter dropdown
+  const sel = document.getElementById('devViewFilter');
+  if(sel) {
+    const allDevs = [...DB.config.feDev, ...DB.config.beDev, ...DB.config.valDev]
+      .filter((v,i,a) => v && a.indexOf(v)===i).sort();
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All Developers</option>' +
+      allDevs.map(d => `<option value="${d}"${d===cur?' selected':''}>${d}</option>`).join('');
+  }
+
+  const filterDev = document.getElementById('devViewFilter')?.value || '';
+
+  // A test needs developer attention if:
+  // 1. Main test: status is Fail/Blocked AND resolveStatus is not Completed/Not Applicable
+  // 2. Retest cycle: retestStatus is Fail AND cycle resolveStatus is not Completed
+  function getDefectsForDev(devName) {
+    const defects = [];
+    DB.tests.forEach(t => {
+      const isAssigned = t.feDev===devName || t.beDev===devName || t.valDev===devName;
+      if(!isAssigned) return;
+
+      const roles = [];
+      if(t.feDev===devName)  roles.push('FE');
+      if(t.beDev===devName)  roles.push('BE');
+      if(t.valDev===devName) roles.push('Val');
+
+      // Check main test — Fail or Blocked, resolve not done
+      const mainNeedsWork = ['Fail','Blocked','Pending Development','New Development'].includes(t.status)
+        && !['Completed','Not Applicable'].includes(t.resolveStatus);
+
+      // Check latest retest cycle
+      const lc = latestCycle(t);
+      const cycleNeedsWork = lc && ['Fail','Failed'].includes(lc.retestStatus)
+        && lc.resolveStatus !== 'Completed';
+
+      if(mainNeedsWork || cycleNeedsWork) {
+        defects.push({ test:t, roles, mainNeedsWork, cycleNeedsWork, lc });
+      }
+    });
+    return defects;
+  }
+
+  const allDevs = [...DB.config.feDev, ...DB.config.beDev, ...DB.config.valDev]
+    .filter((v,i,a) => v && a.indexOf(v)===i).sort();
+
+  const devsToShow = filterDev ? [filterDev] : allDevs;
+
+  if(!DB.tests.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🛠️</div><p>No tests imported yet.</p></div>`;
+    return;
+  }
+
+  let totalDefects = 0;
+  const html = devsToShow.map(devName => {
+    const defects = getDefectsForDev(devName);
+    totalDefects += defects.length;
+
+    const roleColor = {'FE':'var(--accent)','BE':'var(--green)','Val':'var(--purple)'};
+
+    if(!defects.length) return `
+      <div class="card" style="margin-bottom:16px;opacity:.5;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:white;font-family:var(--font-mono);flex-shrink:0;">
+            ${devName.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}
+          </div>
+          <div><div style="font-size:14px;font-weight:600;">${escHtml(devName)}</div>
+          <div style="font-size:12px;color:var(--green);">✅ No open defects</div></div>
+        </div>
+      </div>`;
+
+    return `
+      <div class="card" style="margin-bottom:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:white;font-family:var(--font-mono);flex-shrink:0;">
+              ${devName.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}
+            </div>
+            <div>
+              <div style="font-size:15px;font-weight:600;">${escHtml(devName)}</div>
+              <div style="font-size:12px;color:var(--text3);">
+                ${[...new Set(defects.flatMap(d=>d.roles))].map(r=>`<span style="color:${roleColor[r]};margin-right:6px;">${r}</span>`).join('')}
+              </div>
+            </div>
+          </div>
+          <span class="badge badge-fail" style="font-size:13px;padding:4px 12px;">${defects.length} open defect${defects.length!==1?'s':''}</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Test ID</th><th>Application</th><th>Section</th>
+              <th>Test Script</th><th>Status</th><th>Issue</th>
+              <th>Resolve Status</th><th>Priority</th><th>Action</th>
+            </tr></thead>
+            <tbody>
+              ${defects.map(({test:t, roles, mainNeedsWork, cycleNeedsWork, lc}) => {
+                const app = DB.applications.find(a=>a.id===t.appId);
+                const issue = cycleNeedsWork
+                  ? `Retest Cycle ${lc.cycleNum} failed — fix needed`
+                  : `${t.status} — awaiting resolution`;
+                const resolveDisplay = cycleNeedsWork
+                  ? (lc.resolveStatus || 'Not set')
+                  : (t.resolveStatus || 'Not set');
+                const pri = cycleNeedsWork ? lc.retestPriority : t.priority;
+                return `<tr>
+                  <td class="td-mono">${t.id}</td>
+                  <td style="font-size:11px;color:var(--text2);">${app?.name||t.appId}</td>
+                  <td style="font-size:11px;color:var(--text2);">${t.section||'—'}</td>
+                  <td class="td-truncate" style="max-width:180px;" title="${escHtml(t.script)}">${escHtml(t.script)}</td>
+                  <td>${statusBadge(t.status)}</td>
+                  <td style="font-size:11px;color:var(--yellow);">${issue}</td>
+                  <td>${statusBadge(resolveDisplay)}</td>
+                  <td>${pri?priorityBadge(pri):'<span style="color:var(--text3)">—</span>'}</td>
+                  <td><button class="btn-icon" onclick="openEditModal('${t.id}');switchTestTab('resolve',null)" title="Open & resolve">🔧</button></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = html || `<div class="empty-state"><div class="empty-icon">🎉</div><p>No open defects for any developer.</p></div>`;
+
+  // Update badge
+  const badge = document.getElementById('myDefectsBadge');
+  if(badge) { badge.textContent = totalDefects; badge.style.display = totalDefects ? '' : 'none'; }
+}
+
 // ─── DASHBOARD ─────────────────────────────────────────────────
 function renderDashboard(){
   const eff=effectiveApp('dashAppFilter');
@@ -2686,11 +2858,11 @@ function exportCSV(){
 // 24 Retest Resolved Date | 25 Retest Resolve Status
 
 const BULK_COL_HEADERS = [
-  'Application Name','Test Type','Section','Test Script','Expected Result','Actual Result',
+  'Application Name','Test Type','Connecting System','Section','Test Script','Expected Result','Actual Result',
   'Status','Complexity','Priority','Start Date','Tester Remarks / Notes','Attachment / Screenshot Link',
   'Test Execution Date','Tester Name','Front End Developer','Back End Developer',
   'Validation Developer','Developer Notes','Resolved Date','Resolve Status',
-  'Retest Date','Retest Status','Retest Remarks / Notes','Resolve Priority',
+  'Retest Date','Retest Status','Retest Priority','Retest Remarks / Notes',
   'Restest Resolved Date','Retest Resolve Status'
 ];
 
@@ -2878,18 +3050,19 @@ function parseBulkData() {
     const row = {
       _rowNum: rowNum,
       appName:             g(0),  testType:           g(1),
-      section:             g(2),  script:             g(3),
-      expected:            g(4),  actual:             g(5),
-      status:              g(6),  complexity:         g(7),
-      priority:            g(8),  startDate:          parseDate(g(9)),
-      remarks:             g(10), attachment:         g(11),
-      execDate:            parseDate(g(12)), tester:  g(13),
-      feDev:               g(14), beDev:              g(15),
-      valDev:              g(16), devNotes:           g(17),
-      resolvedDate:        parseDate(g(18)), resolveStatus: g(19),
-      retestDate:          parseDate(g(20)), retestStatus:  g(21),
-      retestPriority:      g(22), retestRemarks:      g(23),
-      retestResolvedDate:  parseDate(g(24)), retestResolveStatus: g(25),
+      connectingSystem:    g(2),
+      section:             g(3),  script:             g(4),
+      expected:            g(5),  actual:             g(6),
+      status:              g(7),  complexity:         g(8),
+      priority:            g(9),  startDate:          parseDate(g(10)),
+      remarks:             g(11), attachment:         g(12),
+      execDate:            parseDate(g(13)), tester:  g(14),
+      feDev:               g(15), beDev:              g(16),
+      valDev:              g(17), devNotes:           g(18),
+      resolvedDate:        parseDate(g(19)), resolveStatus: g(20),
+      retestDate:          parseDate(g(21)), retestStatus:  g(22),
+      retestPriority:      g(23), retestRemarks:      g(24),
+      retestResolvedDate:  parseDate(g(25)), retestResolveStatus: g(26),
     };
     // Accept rows that have a script OR at least an expected result (script may be in expected for some data formats)
     if(row.script || row.expected) {
@@ -2975,7 +3148,7 @@ function renderBulkPreview() {
   document.getElementById('bulkImportCount').textContent = parsedBulkRows.length;
 
   document.getElementById('bulkPreviewHead').innerHTML =
-    `<tr><th>#</th><th>App</th><th>Type</th><th>Section</th><th>Test Script</th><th>Status</th><th>Priority</th><th>Exec Date ✓</th><th>Tester</th><th>Resolve</th><th>Retest</th><th>✓</th></tr>`;
+    `<tr><th>#</th><th>App</th><th>Type</th><th>Conn. System</th><th>Section</th><th>Test Script</th><th>Status</th><th>Priority</th><th>Exec Date ✓</th><th>Tester</th><th>Resolve</th><th>Retest</th><th>✓</th></tr>`;
 
   document.getElementById('bulkPreviewBody').innerHTML =
     parsedBulkRows.slice(0, 100).map(r => {
@@ -2986,6 +3159,7 @@ function renderBulkPreview() {
         <td class="td-mono" style="font-size:10px;">${r._rowNum}</td>
         <td style="font-size:11px;">${escHtml(r.appName)||'<span style="color:var(--red)">MISSING</span>'}</td>
         <td style="font-size:11px;">${escHtml(r.testType)||'—'}</td>
+        <td style="font-size:11px;">${escHtml(r.connectingSystem)||'—'}</td>
         <td style="font-size:11px;">${escHtml(r.section)||'—'}</td>
         <td style="font-size:11px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(r.script)||escHtml(r.expected)}">${r.script?escHtml(r.script):r.expected?`<span style="color:var(--yellow)">⚠ Using Expected</span>`:'<span style="color:var(--red)">MISSING</span>'}</td>
         <td>${r.status ? statusBadge(r.status) : '—'}</td>
@@ -3033,6 +3207,13 @@ function importBulkData() {
       if(!app.sections.includes(r.section)) app.sections.push(r.section);
     }
 
+    // ── Auto-add new connecting system to config ───────────────────
+    if(r.connectingSystem) {
+      if(!DB.config.connectingApps) DB.config.connectingApps = [];
+      if(!DB.config.connectingApps.includes(r.connectingSystem))
+        DB.config.connectingApps.push(r.connectingSystem);
+    }
+
     // ── Auto-add new test type to the parent module + global list ─
     if(r.testType) {
       const mod = DB.modules.find(m => m.id === app.moduleId);
@@ -3078,7 +3259,7 @@ function importBulkData() {
       appId:         app.id,
       testType:      r.testType       || '',
       section:       r.section        || '',
-      connectingApp: '',
+      connectingApp: r.connectingSystem || '',
       object:        '',
       script:        r.script || r.expected,  // fallback to expected if script blank
       expected:      r.expected       || '',
@@ -3203,7 +3384,7 @@ async function init() {
   seedIfEmpty();
 
   // 6. If user was previously logged in, skip the login screen
-  const savedUser = localStorage.getItem('gh_user');
+  const savedUser = localStorage.getItem('iap_user');
   const allNames  = [...DB.config.testers, ...DB.config.feDev, ...DB.config.beDev, ...DB.config.valDev]
     .filter((v,i,a) => v && a.indexOf(v)===i);
   if(savedUser && allNames.includes(savedUser) && ghConfigured()) {
