@@ -1389,9 +1389,15 @@ function updateBadges() {
   if(gApp!=='all') t=t.filter(x=>x.appId===gApp);
 
   const retestCount  = t.filter(x => {
-    if(x.resolveStatus === 'Completed') return true;
     const lc = latestCycle(x);
-    return lc && !['Pass','Passed'].includes(lc.retestStatus);
+    // Exclude passed — done
+    if(lc && ['Pass','Passed'].includes(lc.retestStatus)) return false;
+    // Exclude fail where dev hasn't finished fix yet — not tester's action
+    if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus !== 'Completed') return false;
+    // Include: resolved top-level waiting for first cycle, or active non-fail cycle, or fail with fix ready
+    if(x.resolveStatus === 'Completed') return true;
+    if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus === 'Completed') return true;
+    return lc && !['Fail','Failed','Pass','Passed'].includes(lc.retestStatus);
   }).length;
   const blockedCount = t.filter(x=>x.status==='Blocked'||(x.blockingDeps&&x.blockingDeps.length)).length;
   const chronicCount = t.filter(isChronic).length;
@@ -2469,9 +2475,17 @@ function renderRetestQueue(){
   // Queue includes tests with active retest cycles that haven't passed yet,
   // OR tests resolved at top level waiting for their first cycle
   let tests = DB.tests.filter(t => {
-    if(t.resolveStatus === 'Completed') return true;
+    // Exclude tests whose latest cycle already Passed — they are done
     const lc = latestCycle(t);
-    if(lc && !['Pass','Passed'].includes(lc.retestStatus)) return true;
+    if(lc && ['Pass','Passed'].includes(lc.retestStatus)) return false;
+    // Include: resolved at top level waiting for first cycle
+    if(t.resolveStatus === 'Completed') return true;
+    // Include: has an active cycle that isn't Pass and isn't a dev-only fix (not Fail without fix ready)
+    if(lc) {
+      // Fail cycles only shown when dev has marked fix ready (resolveStatus Completed)
+      if(['Fail','Failed'].includes(lc.retestStatus)) return lc.resolveStatus === 'Completed';
+      return true; // Not Started, In Progress etc
+    }
     return false;
   });
   if(eff!=='all') tests = tests.filter(t => t.appId === eff);
@@ -2485,12 +2499,10 @@ function renderRetestQueue(){
       return lc && ['Not Started','Pending','Ready for Retest'].includes(lc.retestStatus);
     }),
     'In Progress': tests.filter(t => ['In Progress','In Retest'].includes(latestCycle(t)?.retestStatus)),
-    'Fail — Dev Fix Needed': tests.filter(t => ['Fail','Failed'].includes(latestCycle(t)?.retestStatus) && latestCycle(t)?.resolveStatus !== 'Completed'),
-    'Fail — Fix Ready':      tests.filter(t => ['Fail','Failed'].includes(latestCycle(t)?.retestStatus) && latestCycle(t)?.resolveStatus === 'Completed'),
-    'Pass':        tests.filter(t => ['Pass','Passed'].includes(latestCycle(t)?.retestStatus)),
+    'Fail — Fix Ready (Next Cycle Unlocked)': tests.filter(t => ['Fail','Failed'].includes(latestCycle(t)?.retestStatus) && latestCycle(t)?.resolveStatus === 'Completed'),
   };
 
-  const groupColors={'Not Started':'var(--purple)','In Progress':'var(--accent)','Fail — Dev Fix Needed':'var(--red)','Fail — Fix Ready':'var(--orange)','Pass':'var(--green)'};
+  const groupColors={'Not Started':'var(--purple)','In Progress':'var(--accent)','Fail — Fix Ready (Next Cycle Unlocked)':'var(--orange)'};
 
   el.innerHTML=Object.entries(groups).filter(([,arr])=>arr.length).map(([label,arr])=>`
     <div style="margin-bottom:20px;">
