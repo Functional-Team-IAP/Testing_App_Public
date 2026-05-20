@@ -716,7 +716,7 @@ textarea.form-control{resize:vertical;min-height:72px}
           <select id="pipelineTypeFilter" onchange="renderPipeline()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
             <option value="">All Types</option>
             <option value="resolve">Initial Defect Resolved</option>
-            <option value="retest">Retest Passed</option>
+  
           </select>
           <input type="date" id="pipelineDateFrom" onchange="renderPipeline()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;" title="From date">
           <input type="date" id="pipelineDateTo" onchange="renderPipeline()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;" title="To date">
@@ -2721,15 +2721,16 @@ function renderPipeline() {
 
   // Build events — two types:
   // 1. Initial defect resolved (resolveStatus=Completed, resolvedDate set)
-  // 2. Retest cycle passed (retestStatus=Pass, retestDate set)
+  // 2. Retest cycle defect resolved by developer
   const events = [];
 
   DB.tests.forEach(t => {
     const app = DB.applications.find(a=>a.id===t.appId);
     const devs = [t.feDev, t.beDev, t.valDev].filter(Boolean);
 
-    // Type 1: Initial defect resolved
-    if(t.resolveStatus === 'Completed' && t.resolvedDate) {
+    // Type 1: Initial defect resolved — only tests that actually had a defect status
+    const wasDefect = ['Fail','Blocked','Pending Development','New Development'].includes(t.status);
+    if(wasDefect && t.resolveStatus === 'Completed' && t.resolvedDate) {
       if(filterApp  && t.appId !== filterApp) return;
       if(filterDev  && !devs.includes(filterDev)) return;
       if(filterType && filterType !== 'resolve') return;
@@ -2748,29 +2749,31 @@ function renderPipeline() {
       });
     }
 
-    // Type 2: Retest cycles passed
+    // Type 2: Retest cycle events
     (t.retestCycles||[]).forEach(c => {
-      if(!['Pass','Passed'].includes(c.retestStatus)) return;
-      const date = c.retestDate || '';
-      if(!date) return;
       const cycleDevs = [c.cycleFeDev, c.cycleBeDev, c.cycleValDev].filter(Boolean);
       const effDevs   = cycleDevs.length ? cycleDevs : devs;
-      if(filterApp  && t.appId !== filterApp) return;
-      if(filterDev  && !effDevs.includes(filterDev)) return;
-      if(filterType && filterType !== 'retest') return;
-      if(dateFrom   && date < dateFrom) return;
-      if(dateTo     && date > dateTo) return;
-      events.push({
-        date:       date,
-        type:       'retest',
-        test:       t,
-        app:        app,
-        devs:       effDevs,
-        label:      `Retest Cycle ${c.cycleNum} Passed`,
-        cycleNum:   c.cycleNum,
-        tester:     c.tester || t.tester,
-        priority:   c.retestPriority || t.priority,
-      });
+
+      // 2b. Retest cycle defect resolved by developer (Fail → Completed)
+      if(['Fail','Failed'].includes(c.retestStatus) && c.resolveStatus === 'Completed' && c.resolvedDate) {
+        const date = c.resolvedDate;
+        if(filterApp  && t.appId !== filterApp) return;
+        if(filterDev  && !effDevs.includes(filterDev)) return;
+        if(filterType && filterType !== 'resolve') return;
+        if(dateFrom   && date < dateFrom) return;
+        if(dateTo     && date > dateTo) return;
+        events.push({
+          date,
+          type:     'resolve',
+          test:     t,
+          app,
+          devs:     effDevs,
+          label:    `Retest Cycle ${c.cycleNum} Defect Resolved`,
+          cycleNum: c.cycleNum,
+          tester:   c.tester || t.tester,
+          priority: c.retestPriority || t.priority,
+        });
+      }
     });
   });
 
@@ -2778,6 +2781,11 @@ function renderPipeline() {
     el.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>No completed work found${dateFrom||dateTo?' in this date range':''}.</p></div>`;
     return;
   }
+
+  // Remove events with no valid date
+  const validEvents = events.filter(ev => /^\d{4}-\d{2}-\d{2}$/.test(ev.date));
+  events.length = 0;
+  validEvents.forEach(ev => events.push(ev));
 
   // Sort by date descending
   events.sort((a,b) => b.date.localeCompare(a.date));
@@ -2799,8 +2807,8 @@ function renderPipeline() {
     return t2.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
   }
 
-  const typeColor = { resolve:'var(--green)', retest:'var(--accent)' };
-  const typeIcon  = { resolve:'✅', retest:'🔁' };
+  const typeColor = { resolve:'var(--green)' };
+  const typeIcon  = { resolve:'✅' };
 
   el.innerHTML = Object.entries(byDate).map(([date, evs]) => `
     <div style="margin-bottom:24px;">
