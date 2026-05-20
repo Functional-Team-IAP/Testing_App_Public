@@ -360,12 +360,7 @@ textarea.form-control{resize:vertical;min-height:72px}
     <div class="logo-icon">Q</div>
     <div><div class="logo-text">IAP Inc</div><div class="logo-sub">Testing Application</div></div>
   </div>
-  <div class="app-switcher">
-    <div class="app-switcher-label">Filter Scope</div>
-    <select class="app-switcher-select" id="globalAppFilter" onchange="onGlobalAppChange()">
-      <option value="all">🌐 All</option>
-    </select>
-  </div>
+
   <!-- Two-level module→app nav -->
   <div id="moduleAppNav" style="border-bottom:1px solid var(--border);padding:6px 0 8px;max-height:260px;overflow-y:auto;"></div>
   <div class="sidebar-nav">
@@ -743,9 +738,8 @@ textarea.form-control{resize:vertical;min-height:72px}
         </div>
         <div style="border-top:1px solid var(--border);margin:14px 0 12px;"></div>
         <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">Execution Details</div>
-        <div class="form-row-3">
+        <div class="form-row">
           <div class="form-group"><label class="form-label">Tester Name</label><select class="form-control" id="f_tester"></select></div>
-          <div class="form-group"><label class="form-label">Start Date</label><input type="date" class="form-control" id="f_startDate"></div>
           <div class="form-group"><label class="form-label">Test Execution Date</label><input type="date" class="form-control" id="f_execDate"></div>
         </div>
         <div class="form-group"><label class="form-label">Tester Remarks / Notes</label><textarea class="form-control" id="f_remarks" placeholder="Tester notes…"></textarea></div>
@@ -776,7 +770,8 @@ textarea.form-control{resize:vertical;min-height:72px}
         <div class="alert alert-info" style="margin-bottom:16px;">
           ℹ️ Set Resolve Status to <strong>Completed</strong> to unlock the ability to add a new Retest Cycle on the Retest Cycles tab.
         </div>
-        <div class="form-row">
+        <div class="form-row-3">
+          <div class="form-group"><label class="form-label">Start Date</label><input type="date" class="form-control" id="f_startDate"></div>
           <div class="form-group"><label class="form-label">Resolve Status</label><select class="form-control" id="f_resolveStatus" onchange="onResolveStatusChange()"></select></div>
           <div class="form-group"><label class="form-label">Resolved Date</label><input type="date" class="form-control" id="f_resolvedDate"></div>
         </div>
