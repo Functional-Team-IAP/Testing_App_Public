@@ -1355,38 +1355,44 @@ function setGlobalFilter(val) {
   onGlobalAppChange();
 }
 
+// ─── SHARED FILTER FUNCTIONS (single source of truth for all counts) ──
+// Returns true if a test belongs in the tester's retest queue
+function isInRetestQueue(x) {
+  const lc = latestCycle(x);
+  if(lc && ['Pass','Passed'].includes(lc.retestStatus)) return false; // done
+  if(lc && ['Fail','Failed'].includes(lc.retestStatus)) return lc.resolveStatus === 'Completed'; // only if fix ready
+  if(x.resolveStatus === 'Completed') return true; // resolved, waiting for first cycle
+  if(lc && ['Not Started','In Progress','Pending','Ready for Retest','In Retest'].includes(lc.retestStatus)) return true;
+  return false;
+}
+
+// Returns true if a test has an open defect needing a developer (used for My Defects badge)
+// Only counts tests where at least one developer is actually assigned
+function isOpenDevDefect(x) {
+  const hasDevAssigned = x.feDev || x.beDev || x.valDev;
+  if(!hasDevAssigned) return false;
+  const lc = latestCycle(x);
+  // Active failing cycle — dev needs to fix (cycle devs if assigned, else main devs)
+  if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus !== 'Completed') return true;
+  // Main test fail/blocked with no cycle yet (or cycle passed)
+  const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
+  if(noCycleActive) {
+    return ['Fail','Blocked','Pending Development','New Development'].includes(x.status)
+      && !['Completed','Not Applicable'].includes(x.resolveStatus);
+  }
+  return false;
+}
+
 // ─── BADGES ───────────────────────────────────────────────────
 function updateBadges() {
-  const gApp=document.getElementById('globalAppFilter')?.value||'all';
-  let t=DB.tests;
-  if(gApp!=='all') t=t.filter(x=>x.appId===gApp);
+  const gApp = document.getElementById('globalAppFilter')?.value || 'all';
+  let t = DB.tests;
+  if(gApp !== 'all') t = t.filter(x => x.appId === gApp);
 
-  const retestCount  = t.filter(x => {
-    const lc = latestCycle(x);
-    // Exclude passed — done
-    if(lc && ['Pass','Passed'].includes(lc.retestStatus)) return false;
-    // Exclude fail where dev hasn't finished fix yet — not tester's action
-    if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus !== 'Completed') return false;
-    // Include: resolved top-level waiting for first cycle, or active non-fail cycle, or fail with fix ready
-    if(x.resolveStatus === 'Completed') return true;
-    if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus === 'Completed') return true;
-    return lc && !['Fail','Failed','Pass','Passed'].includes(lc.retestStatus);
-  }).length;
-  const blockedCount = t.filter(x=>x.status==='Blocked'||(x.blockingDeps&&x.blockingDeps.length)).length;
-  const chronicCount = t.filter(isChronic).length;
-
-  setBadge('retestBadge', retestCount);
-  setBadge('blockedBadge', blockedCount);
-  setBadge('chronicBadge', chronicCount);
-  // Dev defects badge — count all tests needing dev attention
-  const devDefectCount = DB.tests.filter(t => {
-    const needsWork = ['Fail','Blocked','Pending Development','New Development'].includes(t.status)
-      && !['Completed','Not Applicable'].includes(t.resolveStatus);
-    const lc = latestCycle(t);
-    const cycleNeedsWork = lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus !== 'Completed';
-    return needsWork || cycleNeedsWork;
-  }).length;
-  setBadge('myDefectsBadge', devDefectCount);
+  setBadge('retestBadge',   t.filter(isInRetestQueue).length);
+  setBadge('blockedBadge',  t.filter(x => x.status==='Blocked' || (x.blockingDeps&&x.blockingDeps.length)).length);
+  setBadge('chronicBadge',  t.filter(isChronic).length);
+  setBadge('myDefectsBadge', DB.tests.filter(isOpenDevDefect).length);
 }
 function setBadge(id,n) {
   const el=document.getElementById(id);
@@ -2469,22 +2475,8 @@ function renderRetestQueue(){
   const gApp=document.getElementById('globalAppFilter')?.value||'all';
   const eff=gApp!=='all'?gApp:appFilter;
 
-  // Queue includes tests with active retest cycles that haven't passed yet,
-  // OR tests resolved at top level waiting for their first cycle
-  let tests = DB.tests.filter(t => {
-    // Exclude tests whose latest cycle already Passed — they are done
-    const lc = latestCycle(t);
-    if(lc && ['Pass','Passed'].includes(lc.retestStatus)) return false;
-    // Include: resolved at top level waiting for first cycle
-    if(t.resolveStatus === 'Completed') return true;
-    // Include: has an active cycle that isn't Pass and isn't a dev-only fix (not Fail without fix ready)
-    if(lc) {
-      // Fail cycles only shown when dev has marked fix ready (resolveStatus Completed)
-      if(['Fail','Failed'].includes(lc.retestStatus)) return lc.resolveStatus === 'Completed';
-      return true; // Not Started, In Progress etc
-    }
-    return false;
-  });
+  // Use shared filter — same logic as sidebar badge
+  let tests = DB.tests.filter(isInRetestQueue);
   if(eff!=='all') tests = tests.filter(t => t.appId === eff);
   if(!tests.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">🔁</div><p>No tests in retest queue.</p></div>`;return;}
 
@@ -2706,6 +2698,7 @@ function renderDevView() {
   // Build summary counts
   let totalHigh=0, totalMedium=0, totalLow=0, totalNoPri=0, grandTotal=0;
   const allDefects = devsToShow.flatMap(d => getDefectsForDev(d));
+  // grandTotal = defects visible with current filters (may differ from badge which shows unfiltered)
   allDefects.forEach(d => {
     grandTotal++;
     if(d.pri==='High') totalHigh++;
@@ -2813,8 +2806,8 @@ function renderDevView() {
 
   el.innerHTML = html.trim() || `<div class="empty-state"><div class="empty-icon">🎉</div><p>No open defects match the current filters.</p></div>`;
 
-  const badge = document.getElementById('myDefectsBadge');
-  if(badge) { badge.textContent = totalDefects; badge.style.display=totalDefects?'':'none'; }
+  // Badge uses shared function so it always matches updateBadges()
+  setBadge('myDefectsBadge', DB.tests.filter(isOpenDevDefect).length);
 }
 
 // ─── DASHBOARD ─────────────────────────────────────────────────
