@@ -9,18 +9,19 @@
 <style>
 /* ─── DESIGN TOKENS ─────────────────────────────────────────── */
 :root {
-  --bg:#0d0f14;--bg2:#13161e;--bg3:#1a1e28;--bg4:#222636;
-  --border:#2a2f3f;--border2:#363c52;
-  --text:#e2e5f0;--text2:#9097b0;--text3:#5c6380;
-  --accent:#4f8ef7;--accent2:#3b6fd4;
-  --green:#3ecf8e;--green-dim:#1a4a35;
-  --red:#f75f5f;--red-dim:#4a1a1a;
-  --yellow:#f7c948;--yellow-dim:#4a3a10;
-  --purple:#a78bfa;--purple-dim:#2d2050;
-  --orange:#fb923c;--orange-dim:#3d1f0a;
-  --teal:#34d399;--teal-dim:#0a3326;
+  --bg:#f0f2f7;--bg2:#ffffff;--bg3:#f5f6fa;--bg4:#eceef5;
+  --border:#dde1ec;--border2:#c8cdd e;
+  --text:#1a1d2e;--text2:#4a5068;--text3:#8b91a8;
+  --accent:#3b6fd4;--accent2:#2a56b0;
+  --green:#1a9e6a;--green-dim:#d4f0e5;
+  --red:#d93636;--red-dim:#fde8e8;
+  --yellow:#b87c0a;--yellow-dim:#fdf3d8;
+  --purple:#6d4fc2;--purple-dim:#ede8fb;
+  --orange:#c2570a;--orange-dim:#fdebd8;
+  --teal:#0e8f6a;--teal-dim:#d4f5eb;
+  --coral:#d94040;
   --sidebar-w:240px;--radius:8px;--radius-lg:12px;
-  --shadow:0 4px 24px rgba(0,0,0,.45);
+  --shadow:0 2px 16px rgba(0,0,0,.10);
   --font-mono:'IBM Plex Mono',monospace;--font:'IBM Plex Sans',sans-serif;
   --transition:0.18s ease;
 }
@@ -49,7 +50,7 @@ a{color:var(--accent);text-decoration:none}
 button{cursor:pointer;font-family:var(--font)}
 input,select,textarea{font-family:var(--font)}
 ::-webkit-scrollbar{width:5px;height:5px}
-::-webkit-scrollbar-track{background:var(--bg2)}
+::-webkit-scrollbar-track{background:var(--bg3)}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 
 /* ─── LAYOUT ─────────────────────────────────────────────────── */
@@ -102,7 +103,7 @@ input,select,textarea{font-family:var(--font)}
 
 /* ─── STATUS BADGES ──────────────────────────────────────────── */
 .badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500;font-family:var(--font-mono);white-space:nowrap}
-.badge-pass{background:var(--green-dim);color:var(--green)}
+.badge-pass{background:var(--green-dim);color:var(--green);font-weight:600}
 .badge-fail{background:var(--red-dim);color:var(--red)}
 .badge-blocked{background:var(--yellow-dim);color:var(--yellow)}
 .badge-inprogress{background:#1a2a4a;color:var(--accent)}
@@ -361,8 +362,6 @@ textarea.form-control{resize:vertical;min-height:72px}
     <div><div class="logo-text">IAP Inc</div><div class="logo-sub">Testing Application</div></div>
   </div>
 
-  <!-- Two-level module→app nav -->
-  <div id="moduleAppNav" style="border-bottom:1px solid var(--border);padding:6px 0 8px;max-height:260px;overflow-y:auto;"></div>
   <div class="sidebar-nav">
     <div class="nav-section-label">Overview</div>
     <div class="nav-item active" onclick="navigate('dashboard')" data-page="dashboard"><span class="nav-icon">📊</span> Dashboard</div>
@@ -1336,29 +1335,7 @@ function populateAppSelects() {
   renderSidebarModuleNav();
 }
 
-function renderSidebarModuleNav() {
-  const el = document.getElementById('moduleAppNav');
-  if(!el) return;
-  const mods = DB.modules.filter(m=>m.active);
-  const gFilter = document.getElementById('globalAppFilter')?.value||'all';
-
-  el.innerHTML = mods.map(mod=>{
-    const modApps = DB.applications.filter(a=>a.moduleId===mod.id&&a.active);
-    const isModActive = gFilter === 'mod-'+mod.id;
-    return `<div>
-      <div class="nav-module-header" onclick="setGlobalFilter('mod-${mod.id}')" style="${isModActive?'color:var(--accent);':''}" title="${escHtml(mod.name)}">
-        <span style="font-size:12px;">📦</span>
-        <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(mod.name)}</span>
-      </div>
-      ${modApps.map(a=>{
-        const isActive = gFilter === a.id;
-        return `<div class="nav-sub-item ${isActive?'active':''}" onclick="setGlobalFilter('${a.id}')" title="${escHtml(a.name)}">
-          ${escHtml(a.name)}
-        </div>`;
-      }).join('')}
-    </div>`;
-  }).join('');
-}
+function renderSidebarModuleNav() { /* removed */ }
 
 function setGlobalFilter(val) {
   // val is either appId, 'mod-XXX', or 'all'
