@@ -639,8 +639,21 @@ textarea.form-control{resize:vertical;min-height:72px}
     <!-- ─── MY DEFECTS (DEVELOPER VIEW) ───────────────────────── -->
     <div id="page-devview" class="page">
       <div class="section-header">
-        <div><div class="section-title">🛠️ My Defects</div><div class="section-sub">Defects assigned to developers that need resolution</div></div>
+        <div><div class="section-title">🛠️ My Defects</div><div class="section-sub">Defects assigned to developers</div></div>
       </div>
+
+      <!-- Tab switcher -->
+      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px;">
+        <button id="devTab-active" onclick="switchDevTab('active')"
+          style="padding:9px 24px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:3px solid var(--accent);color:var(--accent);margin-bottom:-2px;font-family:var(--font);">
+          🔴 Active Defects <span id="devTabActiveCount" style="background:var(--red-dim);color:var(--red);border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;"></span>
+        </button>
+        <button id="devTab-onhold" onclick="switchDevTab('onhold')"
+          style="padding:9px 24px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text3);border-bottom:3px solid transparent;margin-bottom:-2px;font-family:var(--font);">
+          ⏸️ On Hold <span id="devTabOnHoldCount" style="background:var(--yellow-dim);color:var(--yellow);border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;"></span>
+        </button>
+      </div>
+
       <!-- Filter / sort bar -->
       <div class="filter-bar" style="margin-bottom:16px;">
         <span class="filter-label">Developer:</span>
@@ -654,14 +667,15 @@ textarea.form-control{resize:vertical;min-height:72px}
           <option value="Medium">Medium</option>
           <option value="Low">Low</option>
         </select>
-        <span class="filter-label" style="margin-left:8px;">Status:</span>
-        <select id="devStatusFilter" onchange="renderDevView()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
-          <option value="">All Statuses</option>
-          <option value="Fail">Fail</option>
-          <option value="Blocked">Blocked</option>
-          <option value="Pending Development">Pending Development</option>
-          <option value="New Development">New Development</option>
-        </select>
+        <span id="devStatusFilterWrap" class="filter-label" style="margin-left:8px;">Status:
+          <select id="devStatusFilter" onchange="renderDevView()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;margin-left:4px;">
+            <option value="">All Statuses</option>
+            <option value="Fail">Fail</option>
+            <option value="Blocked">Blocked</option>
+            <option value="Pending Development">Pending Development</option>
+            <option value="New Development">New Development</option>
+          </select>
+        </span>
         <span class="filter-label" style="margin-left:8px;">Issue Type:</span>
         <select id="devIssueFilter" onchange="renderDevView()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
           <option value="">All</option>
@@ -1371,13 +1385,29 @@ function isOpenDevDefect(x) {
   const hasDevAssigned = x.feDev || x.beDev || x.valDev;
   if(!hasDevAssigned) return false;
   const lc = latestCycle(x);
-  // Active failing cycle — dev needs to fix (cycle devs if assigned, else main devs)
-  if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus !== 'Completed') return true;
-  // Main test fail/blocked with no cycle yet (or cycle passed)
+  // Active failing cycle — exclude On Hold
+  if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus !== 'Completed')
+    return lc.resolveStatus !== 'On Hold';
+  // Main test fail/blocked
   const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
   if(noCycleActive) {
     return ['Fail','Blocked','Pending Development','New Development'].includes(x.status)
-      && !['Completed','Not Applicable'].includes(x.resolveStatus);
+      && !['Completed','Not Applicable','On Hold'].includes(x.resolveStatus);
+  }
+  return false;
+}
+
+function isOnHoldDefect(x) {
+  const hasDevAssigned = x.feDev || x.beDev || x.valDev;
+  if(!hasDevAssigned) return false;
+  const lc = latestCycle(x);
+  // Cycle-level on hold
+  if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus === 'On Hold') return true;
+  // Main test on hold
+  const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
+  if(noCycleActive) {
+    return ['Fail','Blocked','Pending Development','New Development'].includes(x.status)
+      && x.resolveStatus === 'On Hold';
   }
   return false;
 }
@@ -1389,7 +1419,9 @@ function updateBadges() {
   setBadge('retestBadge',    t.filter(isInRetestQueue).length);
   setBadge('blockedBadge',   t.filter(x => x.status==='Blocked' || (x.blockingDeps&&x.blockingDeps.length)).length);
   setBadge('chronicBadge',   t.filter(isChronic).length);
-  setBadge('myDefectsBadge', t.filter(isOpenDevDefect).length);
+  const activeDefects = t.filter(isOpenDevDefect).length;
+  const onHoldDefects  = t.filter(isOnHoldDefect).length;
+  setBadge('myDefectsBadge', activeDefects + onHoldDefects);
 }
 function setBadge(id,n) {
   const el=document.getElementById(id);
@@ -2618,6 +2650,27 @@ function renderChronicFailures(){
 }
 
 // ─── DEVELOPER VIEW ───────────────────────────────────────────
+// ─── DEV VIEW TABS ────────────────────────────────────────────
+let devActiveTab = 'active'; // 'active' | 'onhold'
+
+function switchDevTab(tab) {
+  devActiveTab = tab;
+  const tabActive = document.getElementById('devTab-active');
+  const tabOnHold = document.getElementById('devTab-onhold');
+  if(tabActive) {
+    tabActive.style.borderBottomColor = tab==='active' ? 'var(--accent)' : 'transparent';
+    tabActive.style.color = tab==='active' ? 'var(--accent)' : 'var(--text3)';
+  }
+  if(tabOnHold) {
+    tabOnHold.style.borderBottomColor = tab==='onhold' ? 'var(--yellow)' : 'transparent';
+    tabOnHold.style.color = tab==='onhold' ? 'var(--yellow)' : 'var(--text3)';
+  }
+  // Status filter: on-hold tab hides status filter (not relevant)
+  const statusWrap = document.getElementById('devStatusFilterWrap');
+  if(statusWrap) statusWrap.style.display = tab==='onhold' ? 'none' : '';
+  renderDevView();
+}
+
 function clearDevFilters() {
   ['devViewFilter','devPriFilter','devStatusFilter','devIssueFilter'].forEach(id => {
     const el = document.getElementById(id); if(el) el.value = '';
@@ -2639,6 +2692,17 @@ function renderDevView() {
     sel.innerHTML = '<option value="">All Developers</option>' +
       allDevs.map(d=>`<option value="${d}"${d===cur?' selected':''}>${d}</option>`).join('');
   }
+
+  // Update tab counts
+  const allActive = DB.tests.filter(isOpenDevDefect).length;
+  const allOnHold = DB.tests.filter(isOnHoldDefect).length;
+  const cntActive = document.getElementById('devTabActiveCount');
+  const cntOnHold = document.getElementById('devTabOnHoldCount');
+  if(cntActive) cntActive.textContent = allActive || '';
+  if(cntOnHold) cntOnHold.textContent = allOnHold || '';
+
+  // Branch by active tab
+  if(devActiveTab === 'onhold') { renderOnHoldTab(el); return; }
 
   const filterDev    = document.getElementById('devViewFilter')?.value   || '';
   const filterPri    = document.getElementById('devPriFilter')?.value    || '';
@@ -2841,7 +2905,107 @@ function renderDevView() {
   el.innerHTML = html.trim() || `<div class="empty-state"><div class="empty-icon">🎉</div><p>No open defects match the current filters.</p></div>`;
 
   // Badge uses shared function so it always matches updateBadges()
-  setBadge('myDefectsBadge', DB.tests.filter(isOpenDevDefect).length);
+  setBadge('myDefectsBadge', DB.tests.filter(isOpenDevDefect).length + DB.tests.filter(isOnHoldDefect).length);
+}
+
+function renderOnHoldTab(el) {
+  const filterDev = document.getElementById('devViewFilter')?.value || '';
+  const sortBy    = document.getElementById('devSortBy')?.value || 'priority';
+  const priOrder  = {'High':0,'Medium':1,'Low':2,'':3};
+
+  const allDevs = [...DB.config.feDev,...DB.config.beDev,...DB.config.valDev]
+    .filter((v,i,a) => v && a.indexOf(v)===i).sort();
+  const devsToShow = filterDev ? [filterDev] : allDevs;
+
+  if(!DB.tests.length) { el.innerHTML=`<div class="empty-state"><div class="empty-icon">⏸️</div><p>No tests imported yet.</p></div>`; return; }
+
+  const summaryBar = document.getElementById('devSummaryBar');
+  if(summaryBar) summaryBar.innerHTML = '';
+
+  const roleColor = {'FE':'var(--accent)','BE':'var(--green)','Val':'var(--purple)'};
+
+  const html = devsToShow.map(devName => {
+    const defects = [];
+    DB.tests.forEach(t => {
+      const lc = latestCycle(t);
+      const cycleHasDevs = lc && (lc.cycleFeDev||lc.cycleBeDev||lc.cycleValDev);
+      const mainAssigned = t.feDev===devName||t.beDev===devName||t.valDev===devName;
+      const cycleAssigned = lc && (lc.cycleFeDev===devName||lc.cycleBeDev===devName||lc.cycleValDev===devName);
+
+      let isOnHold = false; let isRelevant = false; const roles = [];
+      const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
+
+      if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus==='On Hold') {
+        isOnHold = true;
+        isRelevant = cycleHasDevs ? cycleAssigned : mainAssigned;
+        if(isRelevant) {
+          const src = cycleHasDevs ? lc : t;
+          if((cycleHasDevs?lc.cycleFeDev:t.feDev)===devName) roles.push('FE');
+          if((cycleHasDevs?lc.cycleBeDev:t.beDev)===devName) roles.push('BE');
+          if((cycleHasDevs?lc.cycleValDev:t.valDev)===devName) roles.push('Val');
+        }
+      } else if(noCycleActive && t.resolveStatus==='On Hold' && mainAssigned) {
+        isOnHold = true; isRelevant = true;
+        if(t.feDev===devName) roles.push('FE');
+        if(t.beDev===devName) roles.push('BE');
+        if(t.valDev===devName) roles.push('Val');
+      }
+      if(!isOnHold || !isRelevant) return;
+
+      const pri = (lc&&['Fail','Failed'].includes(lc.retestStatus)?lc.retestPriority:t.priority)||'';
+      const issueType = (lc&&['Fail','Failed'].includes(lc.retestStatus))?'retest':'main';
+      defects.push({test:t, roles, lc, pri, issueType});
+    });
+
+    if(!defects.length) return filterDev ? `<div class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:white;font-family:var(--font-mono);">${devName.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}</div>
+        <div style="font-size:14px;font-weight:600;">${escHtml(devName)}</div>
+        <div style="font-size:12px;color:var(--green);margin-left:4px;">✅ Nothing on hold</div>
+      </div></div>` : '';
+
+    defects.sort((a,b) => sortBy==='priority'?(priOrder[a.pri]??3)-(priOrder[b.pri]??3):
+      sortBy==='id'?a.test.id.localeCompare(b.test.id):0);
+
+    return `<div class="card" style="margin-bottom:20px;border-left:3px solid var(--yellow);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--yellow),var(--orange));display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:white;font-family:var(--font-mono);">${devName.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}</div>
+          <div>
+            <div style="font-size:15px;font-weight:600;">${escHtml(devName)}</div>
+            <div style="font-size:11px;color:var(--text3);">${[...new Set(defects.flatMap(d=>d.roles))].map(r=>`<span style="color:${roleColor[r]};margin-right:6px;">${r}</span>`).join('')}</div>
+          </div>
+        </div>
+        <span style="background:var(--yellow-dim);color:var(--yellow);border-radius:10px;padding:3px 12px;font-size:12px;font-weight:600;">⏸️ ${defects.length} on hold</span>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Test ID</th><th>Application</th><th>Section</th><th>Test Script</th><th>Status</th><th>Issue Type</th><th>Priority</th><th>Dev Notes</th><th>Action</th></tr></thead>
+        <tbody>${defects.map(({test:t,lc,pri,issueType})=>{
+          const app=DB.applications.find(a=>a.id===t.appId);
+          const devNote = issueType==='retest'?(lc?.devNotes||'—'):(t.devNotes||'—');
+          const issueLbl = issueType==='retest'
+            ?`<span class="badge badge-pendingdev">Retest Cycle ${lc.cycleNum}</span>`
+            :`<span class="badge badge-fail">Initial Defect</span>`;
+          return `<tr style="background:var(--yellow-dim);">
+            <td class="td-mono">${t.id}</td>
+            <td style="font-size:11px;">${app?.name||t.appId}</td>
+            <td style="font-size:11px;">${t.section||'—'}</td>
+            <td class="td-truncate" style="max-width:150px;" title="${escHtml(t.script)}">${escHtml(t.script)}</td>
+            <td>${statusBadge(t.status)}</td>
+            <td>${issueLbl}</td>
+            <td>${pri?priorityBadge(pri):'—'}</td>
+            <td class="td-truncate" style="max-width:160px;font-size:11px;" title="${escHtml(devNote)}">${escHtml(devNote)}</td>
+            <td style="white-space:nowrap;">
+              <button class="btn-icon" onclick="openEditModal('${t.id}');switchTestTab('resolve',null)" title="Resume / change status">▶ Resume</button>
+            </td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = html.trim() || `<div class="empty-state"><div class="empty-icon">⏸️</div><p>No defects are currently on hold.</p></div>`;
+  setBadge('myDefectsBadge', DB.tests.filter(isOpenDevDefect).length + DB.tests.filter(isOnHoldDefect).length);
 }
 
 // ─── DASHBOARD ─────────────────────────────────────────────────
