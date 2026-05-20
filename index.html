@@ -2473,18 +2473,30 @@ function renderRetestQueue(){
   // Use shared filter — same logic as sidebar badge
   let tests = DB.tests.filter(isInRetestQueue);
   if(eff!=='all') tests = tests.filter(t => t.appId === eff);
+  const totalEl = document.getElementById('retestQueueTotal');
+  if(totalEl) totalEl.textContent = tests.length ? `${tests.length} total` : '';
   if(!tests.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">🔁</div><p>No tests in retest queue.</p></div>`;return;}
 
-  // Group by latest cycle status using your Excel vocabulary
+  // Group exhaustively — every test in `tests` lands in exactly one group
   const groups = {
     'Not Started': tests.filter(t => {
       const lc = latestCycle(t);
-      if(!lc && t.resolveStatus === 'Completed') return true; // resolved, cycle not yet created
-      return lc && ['Not Started','Pending','Ready for Retest'].includes(lc.retestStatus);
+      if(!lc) return true; // resolved at top level, no cycle yet
+      return ['Not Started','Pending','Ready for Retest'].includes(lc.retestStatus);
     }),
-    'In Progress': tests.filter(t => ['In Progress','In Retest'].includes(latestCycle(t)?.retestStatus)),
-    'Fail — Fix Ready (Next Cycle Unlocked)': tests.filter(t => ['Fail','Failed'].includes(latestCycle(t)?.retestStatus) && latestCycle(t)?.resolveStatus === 'Completed'),
+    'In Progress': tests.filter(t => {
+      const lc = latestCycle(t);
+      return lc && ['In Progress','In Retest'].includes(lc.retestStatus);
+    }),
+    'Fail — Fix Ready (Next Cycle Unlocked)': tests.filter(t => {
+      const lc = latestCycle(t);
+      return lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus === 'Completed';
+    }),
   };
+  // Sanity: any tests not captured go to Not Started (shouldn't happen but prevents invisible rows)
+  const grouped = Object.values(groups).flat().map(t=>t.id);
+  const ungrouped = tests.filter(t => !grouped.includes(t.id));
+  if(ungrouped.length) groups['Not Started'].push(...ungrouped);
 
   const groupColors={'Not Started':'var(--purple)','In Progress':'var(--accent)','Fail — Fix Ready (Next Cycle Unlocked)':'var(--orange)'};
 
@@ -2817,7 +2829,7 @@ function renderDashboard(){
   const passed=tests.filter(t=>t.status==='Pass').length;
   const failed=tests.filter(t=>t.status==='Fail').length;
   const blocked=tests.filter(t=>t.status==='Blocked').length;
-  const retestQ=tests.filter(t=>t.resolveStatus==='Completed').length;
+  const retestQ=tests.filter(isInRetestQueue).length;
   const chronic=tests.filter(isChronic).length;
 
   document.getElementById('dashStatCards').innerHTML=[
@@ -3468,9 +3480,7 @@ function clearBulkData() {
 }
 
 function effectiveApp(filterId){
-  const gApp=document.getElementById('globalAppFilter')?.value||'all';
-  const local=document.getElementById(filterId)?.value||'all';
-  return gApp!=='all'?gApp:local;
+  return document.getElementById(filterId)?.value||'all';
 }
 function onGlobalSearch(){if(document.getElementById('page-tests').classList.contains('active'))renderTestTable();}
 function openModal(id){document.getElementById(id).classList.add('open');}
