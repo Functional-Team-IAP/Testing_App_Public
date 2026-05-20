@@ -1474,14 +1474,18 @@ function isOpenDevDefect(x) {
   const hasDevAssigned = x.feDev || x.beDev || x.valDev;
   if(!hasDevAssigned) return false;
   const lc = latestCycle(x);
-  // Active failing cycle — exclude On Hold
-  if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus !== 'Completed')
-    return lc.resolveStatus !== 'On Hold';
-  // Main test fail/blocked
+  // Active failing cycle
+  if(lc && ['Fail','Failed'].includes(lc.retestStatus)) {
+    // Exclude if completed or on hold
+    if(['Completed','On Hold'].includes(lc.resolveStatus)) return false;
+    return true;
+  }
+  // Main test fail/blocked — only if no active unresolved cycle
   const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
   if(noCycleActive) {
-    return ['Fail','Blocked','Pending Development','New Development'].includes(x.status)
-      && !['Completed','Not Applicable','On Hold'].includes(x.resolveStatus);
+    if(!['Fail','Blocked','Pending Development','New Development'].includes(x.status)) return false;
+    if(['Completed','Not Applicable','On Hold'].includes(x.resolveStatus)) return false;
+    return true;
   }
   return false;
 }
