@@ -712,7 +712,6 @@ textarea.form-control{resize:vertical;min-height:72px}
     <div class="modal-body">
       <div class="tabs" id="testModalTabs">
         <div class="tab active" onclick="switchTestTab('basic',this)">Basic Info</div>
-        <div class="tab" onclick="switchTestTab('exec',this)">Execution</div>
         <div class="tab" onclick="switchTestTab('dev',this)">Developers</div>
         <div class="tab" onclick="switchTestTab('resolve',this)">Resolve</div>
         <div class="tab" onclick="switchTestTab('retestcycles',this)">Retest Cycles <span class="tab-badge" id="tabCycleBadge" style="display:none">0</span></div>
@@ -742,18 +741,19 @@ textarea.form-control{resize:vertical;min-height:72px}
           <div class="form-group"><label class="form-label">Priority</label><select class="form-control" id="f_priority"></select></div>
           <div class="form-group"><label class="form-label">Complexity</label><select class="form-control" id="f_complexity"></select></div>
         </div>
-      </div>
-
-      <!-- Tab: Execution -->
-      <div id="tab-exec" style="display:none;">
-        <div class="form-row">
+        <div style="border-top:1px solid var(--border);margin:14px 0 12px;"></div>
+        <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">Execution Details</div>
+        <div class="form-row-3">
+          <div class="form-group"><label class="form-label">Tester Name</label><select class="form-control" id="f_tester"></select></div>
           <div class="form-group"><label class="form-label">Start Date</label><input type="date" class="form-control" id="f_startDate"></div>
           <div class="form-group"><label class="form-label">Test Execution Date</label><input type="date" class="form-control" id="f_execDate"></div>
         </div>
-        <div class="form-group"><label class="form-label">Tester Name</label><select class="form-control" id="f_tester"></select></div>
         <div class="form-group"><label class="form-label">Tester Remarks / Notes</label><textarea class="form-control" id="f_remarks" placeholder="Tester notes…"></textarea></div>
         <div class="form-group"><label class="form-label">Attachment / Screenshot Link</label><input class="form-control" id="f_attachment" placeholder="https://…"></div>
       </div>
+
+      <!-- Tab: Execution (kept as empty redirect for backward compat) -->
+      <div id="tab-exec" style="display:none;"></div>
 
       <!-- Tab: Developers -->
       <div id="tab-dev" style="display:none;">
@@ -1207,6 +1207,7 @@ function makeCycle(num,retestDate,tester,retestStatus,priority,remarks,devCycleS
     remarks:remarks||'',
     devCycleStart:devCycleStart||'',
     devNotes:'',
+    cycleFeDev:'', cycleBeDev:'', cycleValDev:'',
     resolveStatus:resolveStatus||'',
     resolvedDate:resolvedDate||'',
     createdAt:today()
@@ -2130,10 +2131,12 @@ function renderCycleCard(c,i) {
   const priOpts=['',...DB.config.priorities].map(s=>`<option value="${s}"${c.retestPriority===s?' selected':''}>${s||'— Select —'}</option>`).join('');
 
   // Summary line shown when collapsed
+  const cycleDevs = [c.cycleFeDev, c.cycleBeDev, c.cycleValDev].filter(Boolean);
   const summaryParts = [
-    c.retestDate ? `📅 ${c.retestDate}` : '',
-    c.tester     ? `👤 ${escHtml(c.tester)}` : '',
-    c.remarks    ? `💬 ${escHtml(c.remarks.substring(0,60))}${c.remarks.length>60?'…':''}` : '',
+    c.retestDate  ? `📅 ${c.retestDate}` : '',
+    c.tester      ? `👤 ${escHtml(c.tester)}` : '',
+    cycleDevs.length ? `🔧 ${cycleDevs.map(escHtml).join(', ')}` : '',
+    c.remarks     ? `💬 ${escHtml(c.remarks.substring(0,50))}${c.remarks.length>50?'…':''}` : '',
   ].filter(Boolean).join('  ·  ');
 
   return `<div class="cycle-node ${statusCls}">
@@ -2200,6 +2203,28 @@ function renderCycleCard(c,i) {
               <label>Resolved Date</label>
               <input type="date" class="form-control" value="${c.resolvedDate||''}" onchange="updateCycleField(${i},'resolvedDate',this.value)">
             </div>`:''}
+          </div>
+          <!-- Per-cycle developer reassignment -->
+          <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 6px;">Assigned Developers (this cycle)</div>
+          <div class="cycle-fields" style="grid-template-columns:1fr 1fr 1fr;">
+            <div class="cycle-field">
+              <label>FE Developer</label>
+              <select class="form-control" onchange="updateCycleField(${i},'cycleFeDev',this.value)">
+                ${['',...DB.config.feDev].map(s=>`<option value="${s}"${c.cycleFeDev===s?' selected':''}>${s||'— None —'}</option>`).join('')}
+              </select>
+            </div>
+            <div class="cycle-field">
+              <label>BE Developer</label>
+              <select class="form-control" onchange="updateCycleField(${i},'cycleBeDev',this.value)">
+                ${['',...DB.config.beDev].map(s=>`<option value="${s}"${c.cycleBeDev===s?' selected':''}>${s||'— None —'}</option>`).join('')}
+              </select>
+            </div>
+            <div class="cycle-field">
+              <label>Validation Developer</label>
+              <select class="form-control" onchange="updateCycleField(${i},'cycleValDev',this.value)">
+                ${['',...DB.config.valDev].map(s=>`<option value="${s}"${c.cycleValDev===s?' selected':''}>${s||'— None —'}</option>`).join('')}
+              </select>
+            </div>
           </div>
           <div class="cycle-field">
             <label>Developer Notes (what was fixed)</label>
@@ -2628,17 +2653,50 @@ function renderDevView() {
   function getDefectsForDev(devName) {
     const defects = [];
     DB.tests.forEach(t => {
-      const isAssigned = t.feDev===devName || t.beDev===devName || t.valDev===devName;
-      if(!isAssigned) return;
-      const roles=[];
-      if(t.feDev===devName) roles.push('FE');
-      if(t.beDev===devName) roles.push('BE');
-      if(t.valDev===devName) roles.push('Val');
+      const lc = latestCycle(t);
+
+      // Check if assigned at main test level
+      const mainAssigned = t.feDev===devName || t.beDev===devName || t.valDev===devName;
+      // Check if reassigned at cycle level (overrides main for this cycle)
+      const cycleAssigned = lc && (lc.cycleFeDev===devName || lc.cycleBeDev===devName || lc.cycleValDev===devName);
+      // Cycle has explicit dev assignments — use those; otherwise fall back to main
+      const cycleHasDevs = lc && (lc.cycleFeDev || lc.cycleBeDev || lc.cycleValDev);
+
       const mainNeedsWork = ['Fail','Blocked','Pending Development','New Development'].includes(t.status)
         && !['Completed','Not Applicable'].includes(t.resolveStatus);
-      const lc = latestCycle(t);
       const cycleNeedsWork = lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus!=='Completed';
+
       if(!mainNeedsWork && !cycleNeedsWork) return;
+
+      // RULE: if there is an active failing cycle, it takes full ownership of this defect.
+      // The original main-test developers do NOT see it — only the cycle's assigned devs do.
+      // This prevents the same defect appearing in two people's lists.
+      let isRelevant = false;
+      const roles = [];
+
+      if(cycleNeedsWork) {
+        // Active cycle — use cycle devs if assigned, else fall back to main test devs
+        if(cycleHasDevs) {
+          isRelevant = cycleAssigned;
+          if(lc.cycleFeDev===devName)  roles.push('FE');
+          if(lc.cycleBeDev===devName)  roles.push('BE');
+          if(lc.cycleValDev===devName) roles.push('Val');
+        } else {
+          // No cycle-level reassignment — original devs handle it
+          isRelevant = mainAssigned;
+          if(t.feDev===devName)  roles.push('FE');
+          if(t.beDev===devName)  roles.push('BE');
+          if(t.valDev===devName) roles.push('Val');
+        }
+        // Either way, this test is ONLY shown as a cycle defect — skip to avoid main listing
+      } else if(mainNeedsWork) {
+        // No active cycle — show as a main defect for original devs only
+        isRelevant = mainAssigned;
+        if(t.feDev===devName)  roles.push('FE');
+        if(t.beDev===devName)  roles.push('BE');
+        if(t.valDev===devName) roles.push('Val');
+      }
+      if(!isRelevant) return;
 
       const pri = (cycleNeedsWork ? lc?.retestPriority : t.priority) || '';
       const resolveDisplay = cycleNeedsWork ? (lc?.resolveStatus||'') : (t.resolveStatus||'');
