@@ -1054,6 +1054,7 @@ function doLogin() {
   document.getElementById('userNameDisplay').textContent = name;
   const av = document.getElementById('userAvatar');
   av.textContent = name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+  startPolling(); // begin auto-sync once logged in
 }
 
 function showLoginError(msg) {
@@ -1082,8 +1083,52 @@ async function refreshFromGitHub() {
 function showUserMenu() {
   if(!confirm(`Sign out as ${currentUser}?`)) return;
   currentUser = '';
+  stopPolling();
   document.getElementById('loginOverlay').style.display = 'flex';
   populateLoginNames();
+}
+
+// ─── AUTO SYNC POLLING ────────────────────────────────────────
+let _pollTimer = null;
+let _isSaving  = false; // don't poll while we're mid-save
+
+function startPolling() {
+  stopPolling();
+  _pollTimer = setInterval(pollForChanges, 30000); // every 30 seconds
+}
+
+function stopPolling() {
+  if(_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+}
+
+async function pollForChanges() {
+  if(!ghConfigured() || _isSaving) return;
+  try {
+    const url = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH_FILE}?t=${Date.now()}`;
+    const res = await fetch(url, { headers: { 'Authorization': `token ${GH.token}` } });
+    if(!res.ok) return;
+    const data = await res.json();
+    // Only reload if SHA has changed (someone else saved)
+    if(data.sha && data.sha !== GH.sha) {
+      const raw = decodeURIComponent(escape(atob(data.content.replace(/\n/g,''))));
+      const p = JSON.parse(raw);
+      GH.sha = data.sha;
+      localStorage.setItem('gh_sha', GH.sha);
+      // Merge remote data into DB
+      DB = { ...DB, ...p };
+      DB.config = { ...DB.config, ...(p.config||{}) };
+      localStorage.setItem('iap_testing_db', JSON.stringify(DB));
+      applyMigrations();
+      // Refresh whichever page is currently visible
+      populateAppSelects(); populateFilters(); updateBadges();
+      const pages = ['dashboard','tests','retest','blocked','chronic','devview','onhold','pipeline','apps','config','bulk'];
+      pages.forEach(pg => {
+        if(document.getElementById('page-'+pg)?.classList.contains('active')) navigate(pg);
+      });
+      // Show a subtle "updated" indicator
+      showSync('saved', '🔄 Updated from GitHub');
+    }
+  } catch(e) { /* silent — don't bother user if poll fails */ }
 }
 
 // ─── SYNC STATUS ───────────────────────────────────────────────
@@ -1106,6 +1151,8 @@ function save() {
 
 async function pushToGitHub() {
   if(!ghConfigured()) return;
+  _isSaving = true;
+  stopPolling();
   showSync('saving', 'Saving to GitHub…');
   try {
     const body = JSON.stringify(DB, null, 2);
@@ -1136,8 +1183,12 @@ async function pushToGitHub() {
     const data = await res.json();
     GH.sha = data.content.sha;
     localStorage.setItem('gh_sha', GH.sha);
+    _isSaving = false;
     showSync('saved', '✅ Saved to GitHub');
+    startPolling(); // resume polling after save
   } catch(e) {
+    _isSaving = false;
+    startPolling();
     showSync('error', '⚠ Save failed — changes kept locally');
     console.error('GitHub push error:', e);
   }
@@ -3922,6 +3973,7 @@ async function init() {
   populateFilters();
   updateBadges();
   renderDashboard();
+  if(currentUser && ghConfigured()) startPolling();
 }
 
 // Migrations extracted so they can be called after both local and GitHub load
