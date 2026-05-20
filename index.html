@@ -2171,13 +2171,12 @@ function renderCycleCard(c,i) {
             </div>
             <div class="cycle-field">
               <label>Resolve Status</label>
-              <select class="form-control" onchange="updateCycleField(${i},'resolveStatus',this.value);renderCycleList();">${resolveOpts}</select>
+              <select class="form-control" id="cycle-resolve-${i}" onchange="updateCycleField(${i},'resolveStatus',this.value);onCycleResolveChange(${i},this.value);">${resolveOpts}</select>
             </div>
-            ${c.resolveStatus==='Completed'?`
-            <div class="cycle-field">
+            <div class="cycle-field" id="cycle-resolvedDate-${i}" style="display:${c.resolveStatus==='Completed'?'block':'none'};">
               <label>Resolved Date</label>
               <input type="date" class="form-control" value="${c.resolvedDate||''}" onchange="updateCycleField(${i},'resolvedDate',this.value)">
-            </div>`:''}
+            </div>
           </div>
           <!-- Per-cycle developer reassignment -->
           <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 6px;">Assigned Developers (this cycle)</div>
@@ -2205,7 +2204,7 @@ function renderCycleCard(c,i) {
             <label>Developer Notes (what was fixed)</label>
             <textarea class="form-control" style="min-height:50px;" onchange="updateCycleField(${i},'devNotes',this.value)" placeholder="What the developer fixed in this cycle…">${escHtml(c.devNotes)}</textarea>
           </div>
-          ${c.resolveStatus==='Completed'?`<div class="alert alert-success" style="margin-top:8px;">✅ Resolved — use the button above to start Cycle ${c.cycleNum+1}.</div>`:''}
+          <div id="cycle-resolved-msg-${i}" class="alert alert-success" style="margin-top:8px;display:${c.resolveStatus==='Completed'?'block':'none'};">✅ Resolved — use the button above to start Cycle ${c.cycleNum+1}.</div>
         </div>`:['Pass','Passed'].includes(c.retestStatus)?`
         <div style="border-top:1px solid var(--green-dim);margin-top:8px;padding-top:8px;">
           <div class="alert alert-success">✅ Passed on Cycle ${c.cycleNum} — testing complete.</div>
@@ -2214,6 +2213,27 @@ function renderCycleCard(c,i) {
       </div><!-- /.cycle-body -->
     </div>
   </div>`;
+}
+
+function onCycleResolveChange(i, val) {
+  // Show/hide resolved date and success message in-place without collapsing the card
+  const dateField = document.getElementById(`cycle-resolvedDate-${i}`);
+  const msg       = document.getElementById(`cycle-resolved-msg-${i}`);
+  const isCompleted = val === 'Completed';
+  if(dateField) dateField.style.display = isCompleted ? 'block' : 'none';
+  if(msg)       msg.style.display       = isCompleted ? 'block' : 'none';
+  // Update the add-cycle button area without touching the card body
+  const addBtn = document.getElementById('cycleAddBtn');
+  if(addBtn) {
+    const n = workingCycles.length;
+    const lastCycle = workingCycles[n-1];
+    if(n>0 && ['Fail','Failed'].includes(lastCycle.retestStatus) && lastCycle.resolveStatus==='Completed'){
+      addBtn.innerHTML=`<button class="btn btn-primary btn-sm" onclick="addNewCycle()">+ Start Retest Cycle ${n+1}</button>
+        <span style="font-size:11px;color:var(--text3);margin-left:10px;">Cycle ${n} failed & resolved — next cycle ready</span>`;
+    } else if(n>0 && ['Fail','Failed'].includes(lastCycle.retestStatus) && lastCycle.resolveStatus!=='Completed'){
+      addBtn.innerHTML=`<div class="alert alert-warning">⚠️ Cycle ${n} failed. Mark its <strong>Resolve Status → Completed</strong> below to unlock Cycle ${n+1}.</div>`;
+    }
+  }
 }
 
 function toggleCycleCollapse(bodyId, headerEl) {
