@@ -2216,12 +2216,19 @@ function renderCycleCard(c,i) {
 }
 
 function onCycleResolveChange(i, val) {
-  // Show/hide resolved date and success message in-place without collapsing the card
   const dateField = document.getElementById(`cycle-resolvedDate-${i}`);
   const msg       = document.getElementById(`cycle-resolved-msg-${i}`);
   const isCompleted = val === 'Completed';
   if(dateField) dateField.style.display = isCompleted ? 'block' : 'none';
   if(msg)       msg.style.display       = isCompleted ? 'block' : 'none';
+  // Auto-fill resolved date with today if not already set
+  if(isCompleted) {
+    const dateInput = dateField?.querySelector('input[type="date"]');
+    if(dateInput && !dateInput.value) {
+      dateInput.value = today();
+      updateCycleField(i, 'resolvedDate', today());
+    }
+  }
   // Update the add-cycle button area without touching the card body
   const addBtn = document.getElementById('cycleAddBtn');
   if(addBtn) {
