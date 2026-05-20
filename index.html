@@ -1282,9 +1282,8 @@ function navigate(page) {
 
 // ─── GLOBAL APP FILTER ────────────────────────────────────────
 function onGlobalAppChange() {
-  const v = document.getElementById('globalAppFilter').value;
-  if(v !== 'all') { window._activeModuleFilter=null; window._activeAppFilter=v; }
-  else { window._activeModuleFilter=null; window._activeAppFilter=null; }
+  // Global filter removed — each page manages its own filter
+  window._activeModuleFilter=null; window._activeAppFilter=null;
   ['dashAppFilter','retestAppFilter','blockedAppFilter','chronicAppFilter'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value=v;
   });
@@ -1315,7 +1314,7 @@ function populateAppSelects() {
     groupedOpts += `<optgroup label="No Module">` + orphans.map(a=>`<option value="${a.id}">${a.name}</option>`).join('') + '</optgroup>';
   }
 
-  ['globalAppFilter','dashAppFilter','retestAppFilter','blockedAppFilter','chronicAppFilter'].forEach(id=>{
+  ['dashAppFilter','retestAppFilter','blockedAppFilter','chronicAppFilter'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.innerHTML=allOpt+groupedOpts;
   });
 
@@ -1385,14 +1384,12 @@ function isOpenDevDefect(x) {
 
 // ─── BADGES ───────────────────────────────────────────────────
 function updateBadges() {
-  const gApp = document.getElementById('globalAppFilter')?.value || 'all';
-  let t = DB.tests;
-  if(gApp !== 'all') t = t.filter(x => x.appId === gApp);
-
-  setBadge('retestBadge',   t.filter(isInRetestQueue).length);
-  setBadge('blockedBadge',  t.filter(x => x.status==='Blocked' || (x.blockingDeps&&x.blockingDeps.length)).length);
-  setBadge('chronicBadge',  t.filter(isChronic).length);
-  setBadge('myDefectsBadge', DB.tests.filter(isOpenDevDefect).length);
+  // Badges always reflect ALL tests — each page has its own local filter
+  const t = DB.tests;
+  setBadge('retestBadge',    t.filter(isInRetestQueue).length);
+  setBadge('blockedBadge',   t.filter(x => x.status==='Blocked' || (x.blockingDeps&&x.blockingDeps.length)).length);
+  setBadge('chronicBadge',   t.filter(isChronic).length);
+  setBadge('myDefectsBadge', t.filter(isOpenDevDefect).length);
 }
 function setBadge(id,n) {
   const el=document.getElementById(id);
@@ -1709,7 +1706,7 @@ function getFilteredTests() {
       const app=DB.applications.find(a=>a.id===t.appId);
       if(!app||app.moduleId!==actMod) return false;
     }
-    if(gApp!=='all'&&!actMod&&!actApp&&t.appId!==gApp) return false;
+
     // Page-level filters
     if(fApp    && t.appId!==fApp) return false;
     if(fModule) {
@@ -2471,9 +2468,7 @@ function addThreadComment(){
 // ─── RETEST QUEUE ──────────────────────────────────────────────
 function renderRetestQueue(){
   const el=document.getElementById('retestQueueBody');
-  const appFilter=document.getElementById('retestAppFilter')?.value||'all';
-  const gApp=document.getElementById('globalAppFilter')?.value||'all';
-  const eff=gApp!=='all'?gApp:appFilter;
+  const eff=document.getElementById('retestAppFilter')?.value||'all';
 
   // Use shared filter — same logic as sidebar badge
   let tests = DB.tests.filter(isInRetestQueue);
