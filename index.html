@@ -2956,6 +2956,7 @@ function renderDevView() {
   const cntOnHold = document.getElementById('devTabOnHoldCount');
   if(cntActive) cntActive.textContent = allActive || '';
   if(cntOnHold) cntOnHold.textContent = allOnHold || '';
+  setBadge('myDefectsBadge', allActive + allOnHold);
 
   // Branch by active tab
   if(devActiveTab === 'onhold') { renderOnHoldTab(el); return; }
@@ -2971,47 +2972,37 @@ function renderDevView() {
   function getDefectsForDev(devName) {
     const defects = [];
     DB.tests.forEach(t => {
+      // Use shared isOpenDevDefect logic — single source of truth
+      if(!isOpenDevDefect(t)) return;
+
       const lc = latestCycle(t);
-
-      // Check if assigned at main test level
       const mainAssigned = t.feDev===devName || t.beDev===devName || t.valDev===devName;
-      // Check if reassigned at cycle level (overrides main for this cycle)
-      const cycleAssigned = lc && (lc.cycleFeDev===devName || lc.cycleBeDev===devName || lc.cycleValDev===devName);
-      // Cycle has explicit dev assignments — use those; otherwise fall back to main
       const cycleHasDevs = lc && (lc.cycleFeDev || lc.cycleBeDev || lc.cycleValDev);
+      const cycleAssigned = lc && (lc.cycleFeDev===devName || lc.cycleBeDev===devName || lc.cycleValDev===devName);
 
-      const mainNeedsWork = ['Fail','Blocked','Pending Development','New Development'].includes(t.status)
-        && !['Completed','Not Applicable'].includes(t.resolveStatus);
-      const cycleNeedsWork = lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus!=='Completed';
+      const cycleNeedsWork = lc && ['Fail','Failed'].includes(lc.retestStatus)
+        && !['Completed','On Hold'].includes(lc.resolveStatus);
+      const mainNeedsWork = !cycleNeedsWork;
 
-      if(!mainNeedsWork && !cycleNeedsWork) return;
-
-      // RULE: if there is an active failing cycle, it takes full ownership of this defect.
-      // The original main-test developers do NOT see it — only the cycle's assigned devs do.
-      // This prevents the same defect appearing in two people's lists.
       let isRelevant = false;
       const roles = [];
 
       if(cycleNeedsWork) {
-        // Active cycle — use cycle devs if assigned, else fall back to main test devs
         if(cycleHasDevs) {
           isRelevant = cycleAssigned;
-          if(lc.cycleFeDev===devName)  roles.push('FE');
-          if(lc.cycleBeDev===devName)  roles.push('BE');
+          if(lc.cycleFeDev===devName) roles.push('FE');
+          if(lc.cycleBeDev===devName) roles.push('BE');
           if(lc.cycleValDev===devName) roles.push('Val');
         } else {
-          // No cycle-level reassignment — original devs handle it
           isRelevant = mainAssigned;
-          if(t.feDev===devName)  roles.push('FE');
-          if(t.beDev===devName)  roles.push('BE');
+          if(t.feDev===devName) roles.push('FE');
+          if(t.beDev===devName) roles.push('BE');
           if(t.valDev===devName) roles.push('Val');
         }
-        // Either way, this test is ONLY shown as a cycle defect — skip to avoid main listing
-      } else if(mainNeedsWork) {
-        // No active cycle — show as a main defect for original devs only
+      } else {
         isRelevant = mainAssigned;
-        if(t.feDev===devName)  roles.push('FE');
-        if(t.beDev===devName)  roles.push('BE');
+        if(t.feDev===devName) roles.push('FE');
+        if(t.beDev===devName) roles.push('BE');
         if(t.valDev===devName) roles.push('Val');
       }
       if(!isRelevant) return;
@@ -3020,10 +3011,9 @@ function renderDevView() {
       const resolveDisplay = cycleNeedsWork ? (lc?.resolveStatus||'') : (t.resolveStatus||'');
       const issueType = cycleNeedsWork ? 'retest' : 'main';
 
-      // Apply filters
       if(filterPri    && pri !== filterPri) return;
       if(filterStatus && t.status !== filterStatus) return;
-      if(filterIssue  && issueType !== filterIssue) return;
+      if(filterIssue  && issueType !== issueType) return;
 
       defects.push({ test:t, roles, mainNeedsWork, cycleNeedsWork, lc, pri, resolveDisplay, issueType });
     });
