@@ -384,6 +384,9 @@ textarea.form-control{resize:vertical;min-height:72px}
       <span class="nav-icon">🛠️</span> My Defects
       <span class="nav-badge" id="myDefectsBadge" style="display:none">0</span>
     </div>
+    <div class="nav-item" onclick="navigate('pipeline')" data-page="pipeline">
+      <span class="nav-icon">📅</span> Pipeline
+    </div>
     <div class="nav-section-label">Data</div>
     <div class="nav-item" onclick="navigate('bulk')" data-page="bulk"><span class="nav-icon">⬆</span> Bulk Upload</div>
     <div class="nav-section-label">System</div>
@@ -694,6 +697,33 @@ textarea.form-control{resize:vertical;min-height:72px}
       </div>
       <div id="devSummaryBar" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;"></div>
       <div id="devViewBody"></div>
+    </div>
+
+    <!-- ─── PIPELINE ───────────────────────────────────────────── -->
+    <div id="page-pipeline" class="page">
+      <div class="section-header">
+        <div>
+          <div class="section-title">📅 Pipeline</div>
+          <div class="section-sub">Completed work grouped by date — initial defects resolved &amp; retests passed</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="pipelineAppFilter" onchange="renderPipeline()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
+            <option value="">All Applications</option>
+          </select>
+          <select id="pipelineDevFilter" onchange="renderPipeline()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
+            <option value="">All Developers</option>
+          </select>
+          <select id="pipelineTypeFilter" onchange="renderPipeline()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
+            <option value="">All Types</option>
+            <option value="resolve">Initial Defect Resolved</option>
+            <option value="retest">Retest Passed</option>
+          </select>
+          <input type="date" id="pipelineDateFrom" onchange="renderPipeline()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;" title="From date">
+          <input type="date" id="pipelineDateTo" onchange="renderPipeline()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;" title="To date">
+          <button class="btn btn-secondary btn-sm" onclick="clearPipelineFilters()">✕ Clear</button>
+        </div>
+      </div>
+      <div id="pipelineBody"></div>
     </div>
 
     <!-- ─── CONFIGURATION ─────────────────────────────────────── -->
@@ -1266,7 +1296,7 @@ function isChronic(t)  { return cycleCount(t)>=3; }
 const PAGE_LABELS = {
   dashboard:'Dashboard',apps:'Applications',tests:'Test Tracker',devview:'My Defects',
   retest:'Retest Queue',blocked:'Blocked Tests',chronic:'Chronic Failures',
-  bulk:'Bulk Upload',config:'Configuration'
+  pipeline:'Pipeline', bulk:'Bulk Upload',config:'Configuration'
 };
 
 function navigate(page) {
@@ -1283,6 +1313,14 @@ function navigate(page) {
   if(page==='chronic')   renderChronicFailures();
   if(page==='bulk')      { /* bulk page is self-contained */ }
   if(page==='config')    renderConfig();
+  if(page==='pipeline') {
+    const appSel = document.getElementById('pipelineAppFilter');
+    if(appSel) {
+      appSel.innerHTML = '<option value="">All Applications</option>' +
+        DB.applications.filter(a=>a.active).map(a=>`<option value="${a.id}">${escHtml(a.name)}</option>`).join('');
+    }
+    renderPipeline();
+  }
   if(page==='devview') {
     // Pre-select logged-in user if they are a developer
     const sel = document.getElementById('devViewFilter');
@@ -2647,6 +2685,161 @@ function renderChronicFailures(){
       ${lc?`<div style="font-size:12px;color:var(--text2);">Latest: ${statusBadge(lc.retestStatus)} — ${lc.remarks||'No remarks'}</div>`:''}
     </div>`;
   }).join('');
+}
+
+// ─── PIPELINE ─────────────────────────────────────────────────
+function clearPipelineFilters() {
+  ['pipelineAppFilter','pipelineDevFilter','pipelineTypeFilter','pipelineDateFrom','pipelineDateTo']
+    .forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  renderPipeline();
+}
+
+function renderPipeline() {
+  const el = document.getElementById('pipelineBody');
+  if(!el) return;
+
+  // Populate filters
+  const appSel = document.getElementById('pipelineAppFilter');
+  if(appSel) {
+    const cur = appSel.value;
+    appSel.innerHTML = '<option value="">All Applications</option>' +
+      DB.applications.filter(a=>a.active).map(a=>`<option value="${a.id}"${a.id===cur?' selected':''}>${escHtml(a.name)}</option>`).join('');
+  }
+  const devSel = document.getElementById('pipelineDevFilter');
+  if(devSel) {
+    const allDevs = [...DB.config.feDev,...DB.config.beDev,...DB.config.valDev].filter((v,i,a)=>v&&a.indexOf(v)===i).sort();
+    const cur = devSel.value;
+    devSel.innerHTML = '<option value="">All Developers</option>' +
+      allDevs.map(d=>`<option value="${d}"${d===cur?' selected':''}>${escHtml(d)}</option>`).join('');
+  }
+
+  const filterApp  = document.getElementById('pipelineAppFilter')?.value  || '';
+  const filterDev  = document.getElementById('pipelineDevFilter')?.value  || '';
+  const filterType = document.getElementById('pipelineTypeFilter')?.value || '';
+  const dateFrom   = document.getElementById('pipelineDateFrom')?.value   || '';
+  const dateTo     = document.getElementById('pipelineDateTo')?.value     || '';
+
+  // Build events — two types:
+  // 1. Initial defect resolved (resolveStatus=Completed, resolvedDate set)
+  // 2. Retest cycle passed (retestStatus=Pass, retestDate set)
+  const events = [];
+
+  DB.tests.forEach(t => {
+    const app = DB.applications.find(a=>a.id===t.appId);
+    const devs = [t.feDev, t.beDev, t.valDev].filter(Boolean);
+
+    // Type 1: Initial defect resolved
+    if(t.resolveStatus === 'Completed' && t.resolvedDate) {
+      if(filterApp  && t.appId !== filterApp) return;
+      if(filterDev  && !devs.includes(filterDev)) return;
+      if(filterType && filterType !== 'resolve') return;
+      if(dateFrom   && t.resolvedDate < dateFrom) return;
+      if(dateTo     && t.resolvedDate > dateTo) return;
+      events.push({
+        date:       t.resolvedDate,
+        type:       'resolve',
+        test:       t,
+        app:        app,
+        devs:       devs,
+        label:      'Initial Defect Resolved',
+        cycleNum:   null,
+        tester:     t.tester,
+        priority:   t.priority,
+      });
+    }
+
+    // Type 2: Retest cycles passed
+    (t.retestCycles||[]).forEach(c => {
+      if(!['Pass','Passed'].includes(c.retestStatus)) return;
+      const date = c.retestDate || '';
+      if(!date) return;
+      const cycleDevs = [c.cycleFeDev, c.cycleBeDev, c.cycleValDev].filter(Boolean);
+      const effDevs   = cycleDevs.length ? cycleDevs : devs;
+      if(filterApp  && t.appId !== filterApp) return;
+      if(filterDev  && !effDevs.includes(filterDev)) return;
+      if(filterType && filterType !== 'retest') return;
+      if(dateFrom   && date < dateFrom) return;
+      if(dateTo     && date > dateTo) return;
+      events.push({
+        date:       date,
+        type:       'retest',
+        test:       t,
+        app:        app,
+        devs:       effDevs,
+        label:      `Retest Cycle ${c.cycleNum} Passed`,
+        cycleNum:   c.cycleNum,
+        tester:     c.tester || t.tester,
+        priority:   c.retestPriority || t.priority,
+      });
+    });
+  });
+
+  if(!events.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>No completed work found${dateFrom||dateTo?' in this date range':''}.</p></div>`;
+    return;
+  }
+
+  // Sort by date descending
+  events.sort((a,b) => b.date.localeCompare(a.date));
+
+  // Group by date
+  const byDate = {};
+  events.forEach(ev => {
+    if(!byDate[ev.date]) byDate[ev.date] = [];
+    byDate[ev.date].push(ev);
+  });
+
+  // Friendly date label
+  function dateLabel(d) {
+    const t2 = new Date(d + 'T00:00:00');
+    const td = today();
+    const yd = new Date(Date.now()-86400000).toISOString().slice(0,10);
+    if(d === td) return `Today · ${d}`;
+    if(d === yd) return `Yesterday · ${d}`;
+    return t2.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  }
+
+  const typeColor = { resolve:'var(--green)', retest:'var(--accent)' };
+  const typeIcon  = { resolve:'✅', retest:'🔁' };
+
+  el.innerHTML = Object.entries(byDate).map(([date, evs]) => `
+    <div style="margin-bottom:24px;">
+      <!-- Date header -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);font-family:var(--font-mono);">${dateLabel(date)}</div>
+        <div style="flex:1;height:1px;background:var(--border);"></div>
+        <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);">${evs.length} item${evs.length!==1?'s':''}</div>
+      </div>
+
+      <!-- Events for this date -->
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${evs.map(ev => {
+          const pri = ev.priority ? priorityBadge(ev.priority) : '<span style="color:var(--text3)">—</span>';
+          return `<div class="card" style="padding:12px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;border-left:3px solid ${typeColor[ev.type]};">
+            <!-- Type icon -->
+            <div style="font-size:18px;flex-shrink:0;">${typeIcon[ev.type]}</div>
+            <!-- Test ID + badge -->
+            <div style="min-width:90px;">
+              <div class="td-mono" style="font-size:12px;color:var(--accent);cursor:pointer;" onclick="openEditModal('${ev.test.id}')">${ev.test.id}</div>
+              <div style="font-size:10px;color:var(--text3);margin-top:2px;">${escHtml(ev.app?.name||'')}</div>
+            </div>
+            <!-- Label -->
+            <div style="flex:0 0 180px;">
+              <span style="font-size:11px;font-weight:600;color:${typeColor[ev.type]};background:${ev.type==='resolve'?'var(--green-dim)':'rgba(79,142,247,.1)'};padding:2px 8px;border-radius:4px;">${ev.label}</span>
+            </div>
+            <!-- Script -->
+            <div style="flex:1;min-width:160px;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(ev.test.script)}">${escHtml(ev.test.script)}</div>
+            <!-- Tester -->
+            <div style="font-size:11px;color:var(--text2);min-width:100px;">👤 ${escHtml(ev.tester||'—')}</div>
+            <!-- Developers -->
+            <div style="font-size:11px;color:var(--text2);min-width:120px;">🔧 ${ev.devs.length?ev.devs.map(escHtml).join(', '):'—'}</div>
+            <!-- Priority -->
+            <div>${pri}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `).join('');
 }
 
 // ─── DEVELOPER VIEW ───────────────────────────────────────────
