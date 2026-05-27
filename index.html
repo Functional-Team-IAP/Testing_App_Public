@@ -1121,8 +1121,28 @@ function showGitHubSettings() {
         if(step1Name) step1Name.style.display = '';
         if(signInBtn) signInBtn.style.display = '';
         btn.remove();
+        const repairBtn = document.getElementById('cfgRepairBtn');
+        if(repairBtn) repairBtn.remove();
       };
       cfgMsg.after(btn);
+      // Add repair button
+      if(!document.getElementById('cfgRepairBtn')) {
+        const repairBtn = document.createElement('button');
+        repairBtn.id = 'cfgRepairBtn';
+        repairBtn.className = 'btn btn-primary';
+        repairBtn.style.cssText = 'width:100%;margin-top:8px;background:var(--orange);border-color:var(--orange);';
+        repairBtn.textContent = '🔧 Repair — overwrite GitHub with my local data';
+        repairBtn.onclick = async () => {
+          repairBtn.textContent = 'Repairing…';
+          repairBtn.disabled = true;
+          GH.sha = ''; // clear SHA so it creates/overwrites
+          localStorage.setItem('gh_sha', '');
+          await pushToGitHub();
+          repairBtn.textContent = '✅ Done — GitHub file restored from local data';
+          setTimeout(() => { repairBtn.remove(); }, 3000);
+        };
+        btn.after(repairBtn);
+      }
     }
   }
 }
@@ -1175,7 +1195,8 @@ async function pollForChanges() {
     // Only reload if SHA has changed (someone else saved)
     if(data.sha && data.sha !== GH.sha) {
       const raw = decodeURIComponent(escape(atob(data.content.replace(/\n/g,''))));
-      const p = JSON.parse(raw);
+      let p;
+      try { p = JSON.parse(raw); } catch(e) { return; } // skip corrupt poll result
       GH.sha = data.sha;
       localStorage.setItem('gh_sha', GH.sha);
       // Merge remote data into DB
@@ -1292,7 +1313,16 @@ async function loadFromGitHub() {
     GH.sha = data.sha;
     localStorage.setItem('gh_sha', GH.sha);
     const raw = decodeURIComponent(escape(atob(data.content.replace(/\n/g,''))));
-    const p = JSON.parse(raw);
+    let p;
+    try {
+      p = JSON.parse(raw);
+    } catch(parseErr) {
+      showSync('error', '⚠ GitHub file is corrupted — using local data. Click ⚙ Sync → Repair to fix.');
+      console.error('Corrupt JSON:', parseErr);
+      GH.sha = data.sha;
+      localStorage.setItem('gh_sha', GH.sha);
+      return false;
+    }
     DB = { ...DB, ...p };
     DB.config = { ...DB.config, ...(p.config||{}) };
     showSync('saved', '✅ Loaded from GitHub');
