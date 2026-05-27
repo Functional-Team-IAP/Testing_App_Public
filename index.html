@@ -403,6 +403,7 @@ textarea.form-control{resize:vertical;min-height:72px}
       <input type="text" id="globalSearch" placeholder="Global search across all tests…" oninput="onGlobalSearch()">
     </div>
     <button class="topbar-btn" onclick="refreshFromGitHub()" title="Pull latest data from GitHub" style="font-size:13px;">⟳</button>
+    <button class="topbar-btn" onclick="showGitHubSettings()" title="GitHub connection settings" style="font-size:13px;">⚙ Sync</button>
     <div id="userChip" onclick="showUserMenu()" title="Click to sign out">
       <div class="user-avatar" id="userAvatar">?</div>
       <span id="userNameDisplay" style="color:var(--text2);">...</span>
@@ -1090,6 +1091,42 @@ function showLoginError(msg) {
   setTimeout(() => el.style.display = 'none', 4000);
 }
 
+function showGitHubSettings() {
+  // Populate current values
+  const o = document.getElementById('cfgOwner');
+  const r = document.getElementById('cfgRepo');
+  const t = document.getElementById('cfgToken');
+  if(o) o.value = GH.owner || '';
+  if(r) r.value = GH.repo  || '';
+  if(t) t.value = GH.token || '';
+  // Show the login overlay in setup mode only
+  const overlay = document.getElementById('loginOverlay');
+  if(overlay) {
+    overlay.style.display = 'flex';
+    // Hide the name selector, show only setup
+    const step1Name = document.getElementById('loginName')?.closest('.form-group');
+    const signInBtn = document.querySelector('#loginStep1 > .btn');
+    if(step1Name) step1Name.style.display = 'none';
+    if(signInBtn) signInBtn.style.display = 'none';
+    // Add a "Done / Close" button if not already there
+    const cfgMsg = document.getElementById('cfgMsg');
+    if(cfgMsg && !document.getElementById('cfgCloseBtn')) {
+      const btn = document.createElement('button');
+      btn.id = 'cfgCloseBtn';
+      btn.className = 'btn btn-secondary';
+      btn.style.cssText = 'width:100%;margin-top:8px;';
+      btn.textContent = '✕ Close';
+      btn.onclick = () => {
+        overlay.style.display = 'none';
+        if(step1Name) step1Name.style.display = '';
+        if(signInBtn) signInBtn.style.display = '';
+        btn.remove();
+      };
+      cfgMsg.after(btn);
+    }
+  }
+}
+
 async function refreshFromGitHub() {
   const loaded = await loadFromGitHub();
   if(loaded) {
@@ -1216,7 +1253,12 @@ async function pushToGitHub() {
   } catch(e) {
     _isSaving = false;
     startPolling();
-    showSync('error', '⚠ Save failed — changes kept locally');
+    const msg = e?.message || String(e);
+    const hint = msg.includes('401') ? 'Token expired — re-enter in settings' :
+                 msg.includes('403') ? 'Token lacks write permission' :
+                 msg.includes('404') ? 'Repo not found' :
+                 msg.includes('Failed to fetch') ? 'Network error' : msg;
+    showSync('error', `⚠ Save failed: ${hint}`);
     console.error('GitHub push error:', e);
   }
 }
@@ -1256,7 +1298,12 @@ async function loadFromGitHub() {
     showSync('saved', '✅ Loaded from GitHub');
     return true;
   } catch(e) {
-    showSync('error', '⚠ Could not load from GitHub — using local data');
+    const msg = e?.message || String(e);
+    const hint = msg.includes('401') ? 'Token expired or invalid' :
+                 msg.includes('403') ? 'Token lacks repo permission' :
+                 msg.includes('404') ? 'Repo or file not found' :
+                 msg.includes('Failed to fetch') ? 'Network error — check connection' : msg;
+    showSync('error', `⚠ GitHub load failed: ${hint}`);
     console.error('GitHub load error:', e);
     return false;
   }
