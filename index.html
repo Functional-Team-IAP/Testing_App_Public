@@ -1171,7 +1171,11 @@ async function pollForChanges() {
     const data = await res.json();
     // Only reload if SHA has changed (someone else saved)
     if(data.sha && data.sha !== GH.sha) {
-      const raw = decodeURIComponent(escape(atob(data.content.replace(/\n/g,''))));
+      const _b64 = data.content.replace(/\n/g,'');
+    const _bin = atob(_b64);
+    const _bytes = new Uint8Array(_bin.length);
+    for(let i=0;i<_bin.length;i++) _bytes[i]=_bin.charCodeAt(i);
+    const raw = new TextDecoder().decode(_bytes);
       let p;
       try { p = JSON.parse(raw); } catch(e) { return; } // skip corrupt poll result
       GH.sha = data.sha;
@@ -1217,8 +1221,14 @@ async function pushToGitHub() {
   stopPolling();
   showSync('saving', 'Saving to GitHub…');
   try {
-    const body = JSON.stringify(DB, null, 2);
-    const encoded = btoa(unescape(encodeURIComponent(body)));
+    const body = JSON.stringify(DB);
+    const bytes = new TextEncoder().encode(body);
+    let binary = '';
+    const chunkSize = 8192;
+    for(let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    const encoded = btoa(binary);
     const url = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH_FILE}`;
     const payload = {
       message: `IAP Testing App update by ${currentUser||'system'} on ${today()}`,
@@ -1289,7 +1299,11 @@ async function loadFromGitHub() {
     const data = await res.json();
     GH.sha = data.sha;
     localStorage.setItem('gh_sha', GH.sha);
-    const raw = decodeURIComponent(escape(atob(data.content.replace(/\n/g,''))));
+    const _b64 = data.content.replace(/\n/g,'');
+    const _bin = atob(_b64);
+    const _bytes = new Uint8Array(_bin.length);
+    for(let i=0;i<_bin.length;i++) _bytes[i]=_bin.charCodeAt(i);
+    const raw = new TextDecoder().decode(_bytes);
     let p;
     try {
       p = JSON.parse(raw);
