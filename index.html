@@ -3913,9 +3913,10 @@ function downloadTemplate() {
   const modEx  = DB.modules[0];
   const ttEx   = modEx?.testTypes?.[0] || 'Create with Reference';
   const secEx  = DB.applications[0]?.sections?.[0] || 'Claim Header';
-  const header = BULK_COL_HEADERS.join('\t');
+  const q = v => `"${(v||'').toString().replace(/"/g,'""')}"`;
+  const header = BULK_COL_HEADERS.map(q).join(',');
   const example = [
-    appEx, ttEx, secEx,
+    appEx, ttEx, '', secEx,
     'User creates a claim with valid reference number',
     'Claim is saved and reference linked','Claim saved successfully',
     'Pass','Medium','High','2024-05-01',
@@ -3925,13 +3926,13 @@ function downloadTemplate() {
     DB.config.beDev[0]||'Madhu Sharma',
     DB.config.valDev[0]||'Sneh Vartak',
     'No issues found','2024-05-05','Completed',
-    '2024-05-07','Passed','Retest passed','High','2024-05-08','Completed'
-  ].join('\t');
-  const tsv  = header + '\n' + example;
-  const blob = new Blob([tsv], { type: 'text/tab-separated-values;charset=utf-8' });
+    '2024-05-07','Pass','High','Retest passed','2024-05-08','Completed'
+  ].map(q).join(',');
+  const csv  = header + '\n' + example;
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  a.href = url; a.download = 'qa-nexus-upload-template.tsv';
+  a.href = url; a.download = 'iap-testing-upload-template.csv';
   document.body.appendChild(a); a.click();
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 300);
 }
