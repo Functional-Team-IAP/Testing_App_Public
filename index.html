@@ -526,7 +526,7 @@ textarea.form-control{resize:vertical;min-height:72px}
         <table id="testTable">
           <thead><tr>
             <th style="width:36px;padding:10px 8px;"><input type="checkbox" id="selectAllTests" onchange="toggleSelectAll(this)" style="cursor:pointer;accent-color:var(--accent);width:14px;height:14px;"></th>
-            <th>Test ID</th><th>Module</th><th>Application</th><th>Type</th><th>Section</th><th>Conn. App</th>
+            <th>Test ID</th><th>Module</th><th>Application</th><th>Type</th><th>Claim Type</th><th>Section</th><th>Conn. App</th>
             <th>Test Script</th><th>Status</th><th>Priority</th><th>Tester</th>
             <th>Developers</th><th>Resolve</th><th>Current Retest</th><th>Cycles</th><th>Actions</th>
           </tr></thead>
@@ -586,7 +586,8 @@ textarea.form-control{resize:vertical;min-height:72px}
               ['A / 0','Application Name','Must match an existing application name exactly'],
               ['B / 1','Test Type','Auto-added to module if new'],
               ['C / 2','Section','Auto-added to application if new'],
-              ['C / 2','Connecting System','e.g. All, IAP RGM, SAP RGM'],
+              ['C / 2','Claim Type','e.g. ZDR1, ZDR2, ZCR1, ZCR2'],
+              ['D / 3','Connecting System','e.g. All, IAP RGM, SAP RGM'],
               ['D / 3','Section','Auto-added to application if new'],
               ['E / 4','Test Script','Required — rows without this are skipped'],
               ['F / 5','Expected Result',''],
@@ -808,6 +809,7 @@ textarea.form-control{resize:vertical;min-height:72px}
         </div>
         <div class="form-row-3">
           <div class="form-group"><label class="form-label">Test Type</label><select class="form-control" id="f_testType"></select></div>
+          <div class="form-group"><label class="form-label">Claim Type</label><select class="form-control" id="f_claimType"></select></div>
           <div class="form-group"><label class="form-label">Section</label><select class="form-control" id="f_section"></select></div>
           <div class="form-group"><label class="form-label">Connecting Application</label><select class="form-control" id="f_connectingApp"></select></div>
         </div>
@@ -1036,6 +1038,7 @@ let DB = {
     retestStatus: ['Not Started','In Progress','Pass','Fail','Blocked'],
     complexity:     ['Low','Medium','High','Critical'],
     testTypes:      ['Create with Reference','Create without Reference','All'],
+    claimTypes:     ['ZDR1','ZDR2','ZCR1','ZCR2'],
     connectingApps: ['IAP RGM','SAP RGM','All']
   }
 };
@@ -1515,7 +1518,7 @@ function makeTest(id,appId,type,section,obj,script,expected,actual,status,priori
   if(be) roles.push('be');
   if(val) roles.push('val');
   return {
-    id,appId,testType:type,section,object:obj,script,expected,actual,
+    id,appId,testType:type,claimType:'',section,object:obj,script,expected,actual,
     status,priority,complexity:'Medium',tester,
     feDev:fe,beDev:be,valDev:val,devRoles:roles,
     devNotes:'',remarks:'Sample test case',attachment:'',
@@ -2070,7 +2073,8 @@ function getFilteredTests() {
   const fPri    =(document.getElementById('fPriority')?.value||'').trim();
   const fTester =(document.getElementById('fTester')?.value||'').trim();
   const fSec    =(document.getElementById('fSection')?.value||'').trim();
-  const fType   =(document.getElementById('fTestType')?.value||'').trim();
+  const fType      =(document.getElementById('fTestType')?.value||'').trim();
+  const fClaimType =(document.getElementById('fClaimType')?.value||'').trim();
   const fRes    =(document.getElementById('fResolve')?.value||'').trim();
   const fCycle  =(document.getElementById('fCycleCount')?.value||'').trim();
   const fConnApp=(document.getElementById('fConnApp')?.value||'').trim();
@@ -2102,7 +2106,8 @@ function getFilteredTests() {
     if(fPri    && t.priority!==fPri) return false;
     if(fTester && t.tester!==fTester) return false;
     if(fSec    && t.section!==fSec) return false;
-    if(fType   && t.testType!==fType) return false;
+    if(fType      && t.testType!==fType) return false;
+    if(fClaimType && (t.claimType||'')!==fClaimType) return false;
     if(fRes    && t.resolveStatus!==fRes) return false;
     if(fConnApp&& t.connectingApp!==fConnApp) return false;
     if(fCycle){
@@ -2144,6 +2149,7 @@ function renderTestTable(tests=null) {
       <td style="font-size:11px;color:var(--purple);">${mod?.name||'—'}</td>
       <td style="font-size:11px;color:var(--text2);">${app?.name||t.appId}</td>
       <td><span class="badge badge-notstarted" style="font-size:10px;">${t.testType||'—'}</span></td>
+      <td><span style="font-size:11px;color:var(--text2);font-family:var(--font-mono);">${t.claimType||'—'}</span></td>
       <td style="font-size:12px;color:var(--text2);">${t.section||'—'}</td>
       <td style="font-size:11px;color:var(--teal);">${t.connectingApp||'—'}</td>
       <td class="td-truncate" title="${escHtml(t.script)}">${escHtml(t.script)}</td>
@@ -2172,7 +2178,7 @@ function onModuleFilterChange() {
   applyFilters();
 }
 function clearFilters(){
-  ['fApp','fModule','fStatus','fPriority','fTester','fSection','fTestType','fConnApp','fResolve','fCycleCount'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['fApp','fModule','fStatus','fPriority','fTester','fSection','fTestType','fClaimType','fConnApp','fResolve','fCycleCount'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('fSearch').value='';
   const fa=document.getElementById('fApp');
   if(fa) fa.innerHTML='<option value="">All Apps</option>'+DB.applications.map(a=>`<option value="${a.id}">${a.name}</option>`).join('');
@@ -2187,6 +2193,7 @@ function populateFilters(){
   // Test types in filter: union of all module test types
   const allTypes=[...new Set(DB.modules.flatMap(m=>m.testTypes||[]))].concat(DB.config.testTypes||[]).filter((v,i,a)=>a.indexOf(v)===i);
   populateSelect('fTestType',allTypes);
+  populateSelect('fClaimType',[...new Set(DB.tests.map(t=>t.claimType).filter(Boolean))]);
   refreshFilterSectionAndType();
 }
 
@@ -2265,6 +2272,7 @@ function openEditModal(id) {
 
   // Now set the app-specific field values
   set('f_testType', t.testType);
+  set('f_claimType', t.claimType||'');
   set('f_section',  t.section);
   set('f_connectingApp', t.connectingApp);
 
@@ -2360,6 +2368,7 @@ function refreshAppSpecificDropdowns(appId, modId=null) {
   const curType = document.getElementById('f_testType')?.value;
   populateSelectRaw('f_section',  [{v:'',l:'— Select Section —'},...sections.map(v=>({v,l:v}))]);
   populateSelectRaw('f_testType', [{v:'',l:'— Select Type —'},...testTypes.map(v=>({v,l:v}))]);
+  populateSelectRaw('f_claimType', [{v:'',l:'— Select —'},...(DB.config.claimTypes||[]).map(v=>({v,l:v}))]);
   if(curSec  && sections.includes(curSec))   document.getElementById('f_section').value  = curSec;
   if(curType && testTypes.includes(curType)) document.getElementById('f_testType').value = curType;
 }
@@ -2721,6 +2730,7 @@ function saveTest() {
     id:document.getElementById('f_id').value,
     appId,
     testType:document.getElementById('f_testType').value,
+    claimType:document.getElementById('f_claimType')?.value||'',
     section:document.getElementById('f_section').value,
     object:document.getElementById('f_object')?.value||'',
     script,expected:document.getElementById('f_expected').value,
@@ -3742,6 +3752,7 @@ function renderConfig(){
     {key:'priorities',     label:'Priorities'},
     {key:'complexity',     label:'Complexity Values'},
     {key:'testTypes',      label:'Test Types (Global Defaults)'},
+    {key:'claimTypes',     label:'Claim Types'},
     {key:'connectingApps', label:'Connecting Application Values'},
   ];
   const half=Math.ceil(groups.length/2);
@@ -3775,7 +3786,7 @@ function exportCSV(){
 
   // ── Headers: match import format exactly, then cycle columns ──
   const baseHeaders = [
-    'Test ID','Application Name','Module','Test Type','Connecting System','Section',
+    'Test ID','Application Name','Module','Test Type','Claim Type','Connecting System','Section',
     'Test Script','Expected Result','Actual Result',
     'Status','Complexity','Priority',
     'Start Date','Test Execution Date','Tester Name',
@@ -3813,6 +3824,7 @@ function exportCSV(){
       app?.name || '',
       mod?.name || '',
       t.testType || '',
+      t.claimType || '',
       t.connectingApp || '',
       t.section || '',
       t.script || '',
@@ -3877,7 +3889,7 @@ function exportCSV(){
 // 24 Retest Resolved Date | 25 Retest Resolve Status
 
 const BULK_COL_HEADERS = [
-  'Application Name','Test Type','Connecting System','Section','Test Script','Expected Result','Actual Result',
+  'Application Name','Test Type','Claim Type','Connecting System','Section','Test Script','Expected Result','Actual Result',
   'Status','Complexity','Priority','Start Date','Tester Remarks / Notes','Attachment / Screenshot Link',
   'Test Execution Date','Tester Name','Front End Developer','Back End Developer',
   'Validation Developer','Developer Notes','Resolved Date','Resolve Status',
@@ -4069,19 +4081,20 @@ function parseBulkData() {
     const row = {
       _rowNum: rowNum,
       appName:             g(0),  testType:           g(1),
-      connectingSystem:    g(2),
-      section:             g(3),  script:             g(4),
-      expected:            g(5),  actual:             g(6),
-      status:              g(7),  complexity:         g(8),
-      priority:            g(9),  startDate:          parseDate(g(10)),
-      remarks:             g(11), attachment:         g(12),
-      execDate:            parseDate(g(13)), tester:  g(14),
-      feDev:               g(15), beDev:              g(16),
-      valDev:              g(17), devNotes:           g(18),
-      resolvedDate:        parseDate(g(19)), resolveStatus: g(20),
-      retestDate:          parseDate(g(21)), retestStatus:  g(22),
-      retestPriority:      g(23), retestRemarks:      g(24),
-      retestResolvedDate:  parseDate(g(25)), retestResolveStatus: g(26),
+      claimType:           g(2),
+      connectingSystem:    g(3),
+      section:             g(4),  script:             g(5),
+      expected:            g(6),  actual:             g(7),
+      status:              g(8),  complexity:         g(9),
+      priority:            g(10), startDate:          parseDate(g(11)),
+      remarks:             g(12), attachment:         g(13),
+      execDate:            parseDate(g(14)), tester:  g(15),
+      feDev:               g(16), beDev:              g(17),
+      valDev:              g(18), devNotes:           g(19),
+      resolvedDate:        parseDate(g(20)), resolveStatus: g(21),
+      retestDate:          parseDate(g(22)), retestStatus:  g(23),
+      retestPriority:      g(24), retestRemarks:      g(25),
+      retestResolvedDate:  parseDate(g(26)), retestResolveStatus: g(27),
     };
     // Accept rows that have a script OR at least an expected result (script may be in expected for some data formats)
     if(row.script || row.expected) {
@@ -4167,7 +4180,7 @@ function renderBulkPreview() {
   document.getElementById('bulkImportCount').textContent = parsedBulkRows.length;
 
   document.getElementById('bulkPreviewHead').innerHTML =
-    `<tr><th>#</th><th>App</th><th>Type</th><th>Conn. System</th><th>Section</th><th>Test Script</th><th>Status</th><th>Priority</th><th>Exec Date ✓</th><th>Tester</th><th>Resolve</th><th>Retest</th><th>✓</th></tr>`;
+    `<tr><th>#</th><th>App</th><th>Type</th><th>Claim Type</th><th>Conn. System</th><th>Section</th><th>Test Script</th><th>Status</th><th>Priority</th><th>Exec Date ✓</th><th>Tester</th><th>Resolve</th><th>Retest</th><th>✓</th></tr>`;
 
   document.getElementById('bulkPreviewBody').innerHTML =
     parsedBulkRows.slice(0, 100).map(r => {
@@ -4178,6 +4191,7 @@ function renderBulkPreview() {
         <td class="td-mono" style="font-size:10px;">${r._rowNum}</td>
         <td style="font-size:11px;">${escHtml(r.appName)||'<span style="color:var(--red)">MISSING</span>'}</td>
         <td style="font-size:11px;">${escHtml(r.testType)||'—'}</td>
+        <td style="font-size:11px;font-family:var(--font-mono);">${escHtml(r.claimType)||'—'}</td>
         <td style="font-size:11px;">${escHtml(r.connectingSystem)||'—'}</td>
         <td style="font-size:11px;">${escHtml(r.section)||'—'}</td>
         <td style="font-size:11px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(r.script)||escHtml(r.expected)}">${r.script?escHtml(r.script):r.expected?`<span style="color:var(--yellow)">⚠ Using Expected</span>`:'<span style="color:var(--red)">MISSING</span>'}</td>
@@ -4224,6 +4238,13 @@ function importBulkData() {
     if(r.section) {
       if(!app.sections) app.sections = [];
       if(!app.sections.includes(r.section)) app.sections.push(r.section);
+    }
+
+    // ── Auto-add new claim type to config ──────────────────────────
+    if(r.claimType) {
+      if(!DB.config.claimTypes) DB.config.claimTypes = [];
+      if(!DB.config.claimTypes.includes(r.claimType))
+        DB.config.claimTypes.push(r.claimType);
     }
 
     // ── Auto-add new connecting system to config ───────────────────
@@ -4278,6 +4299,7 @@ function importBulkData() {
       roundId:       currentRoundId || null,
       appId:         app.id,
       testType:      r.testType       || '',
+      claimType:     r.claimType      || '',
       section:       r.section        || '',
       connectingApp: r.connectingSystem || '',
       object:        '',
