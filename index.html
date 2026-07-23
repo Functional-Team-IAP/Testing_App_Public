@@ -352,14 +352,51 @@ textarea.form-control{resize:vertical;min-height:72px}
   </div>
 </div>
 
+<!-- ─── ROUND SELECTOR ──────────────────────────────────────── -->
+<div id="roundOverlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9998;align-items:center;justify-content:center;flex-direction:column;">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);padding:36px;width:100%;max-width:520px;box-shadow:var(--shadow);">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">
+      <div style="width:44px;height:44px;background:linear-gradient(135deg,var(--accent),var(--purple));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:white;flex-shrink:0;">Q</div>
+      <div><div style="font-size:18px;font-weight:700;">Select E2E Round</div><div style="font-size:12px;color:var(--text3);margin-top:2px;">Each round represents one ABAP environment cycle</div></div>
+    </div>
+
+    <!-- Existing rounds list -->
+    <div id="roundList" style="margin-bottom:20px;max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;"></div>
+
+    <!-- Create new round -->
+    <div style="border-top:1px solid var(--border);padding-top:16px;">
+      <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">New Round</div>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+        <div style="flex:1;min-width:160px;">
+          <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px;">Round Name</label>
+          <input class="form-control" id="newRoundName" placeholder="e.g. Round 3" style="font-size:13px;">
+        </div>
+        <div style="flex:1;min-width:160px;">
+          <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px;">ABAP Environment Date</label>
+          <input type="date" class="form-control" id="newRoundDate" style="font-size:13px;">
+        </div>
+        <button class="btn btn-primary" onclick="createRound()" style="flex-shrink:0;height:38px;padding:0 18px;">+ Create</button>
+      </div>
+      <div id="roundCreateMsg" style="font-size:12px;margin-top:8px;"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ─── SYNC STATUS BAR ──────────────────────────────────────── -->
 <div id="syncBar"><span class="sync-dot"></span><span id="syncMsg">Saving…</span></div>
 
 <!-- ═══ SIDEBAR ════════════════════════════════════════════════ -->
 <nav id="sidebar">
-  <div class="sidebar-logo">
-    <div class="logo-icon">Q</div>
-    <div><div class="logo-text">IAP Inc</div><div class="logo-sub">Testing Application</div></div>
+  <div class="sidebar-logo" style="flex-direction:column;align-items:flex-start;gap:6px;padding-bottom:8px;">
+    <div style="display:flex;align-items:center;gap:10px;width:100%;">
+      <div class="logo-icon">Q</div>
+      <div><div class="logo-text">IAP Inc</div><div class="logo-sub">Testing Application</div></div>
+    </div>
+    <div id="roundIndicator" onclick="showRoundSelector()" title="Switch round"
+      style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:space-between;">
+      <span id="roundIndicatorText" style="color:var(--accent);font-weight:600;font-family:var(--font-mono);">No round selected</span>
+      <span style="color:var(--text3);font-size:10px;">⇄ switch</span>
+    </div>
   </div>
 
   <div class="sidebar-nav">
@@ -986,6 +1023,7 @@ textarea.form-control{resize:vertical;min-height:72px}
 let DB = {
   modules: [],
   applications: [],
+  rounds: [],
   tests: [],
   config: {
     testers:      ['Maitree Oza','Manish Oza','Bhavik Bhatt','Milap Thaker','Sreenivas','Sneh Vartak'],
@@ -1003,6 +1041,7 @@ let DB = {
 };
 
 let currentEditId   = null;
+let currentRoundId  = null; // active round — all test operations scoped to this
 let currentAppEditId = null;
 let charts = {};
 let currentTab = 'basic';
@@ -1049,6 +1088,104 @@ function populateLoginNames() {
   if(last && names.includes(last)) sel.value = last;
 }
 
+// ─── ROUND MANAGEMENT ─────────────────────────────────────────
+function showRoundSelector() {
+  renderRoundList();
+  document.getElementById('roundOverlay').style.display = 'flex';
+  // Pre-fill next round name
+  const n = (DB.rounds||[]).length + 1;
+  const nameEl = document.getElementById('newRoundName');
+  if(nameEl && !nameEl.value) nameEl.value = `Round ${n}`;
+  const dateEl = document.getElementById('newRoundDate');
+  if(dateEl && !dateEl.value) dateEl.value = today();
+}
+
+function hideRoundSelector() {
+  document.getElementById('roundOverlay').style.display = 'none';
+}
+
+function renderRoundList() {
+  const el = document.getElementById('roundList');
+  if(!el) return;
+  const rounds = DB.rounds || [];
+  if(!rounds.length) {
+    el.innerHTML = `<div style="text-align:center;color:var(--text3);font-size:13px;padding:16px 0;">No rounds yet — create your first round below.</div>`;
+    return;
+  }
+  el.innerHTML = rounds.slice().reverse().map(r => {
+    const testCount = (DB.tests||[]).filter(t => t.roundId === r.id).length;
+    const passCount = (DB.tests||[]).filter(t => t.roundId === r.id && t.status === 'Pass').length;
+    const pct = testCount ? Math.round(passCount/testCount*100) : 0;
+    const isActive = r.id === currentRoundId;
+    return `<div onclick="selectRound('${r.id}')"
+      style="border:2px solid ${isActive?'var(--accent)':'var(--border)'};border-radius:8px;padding:12px 16px;cursor:pointer;transition:.15s;background:${isActive?'rgba(59,111,212,.06)':'var(--bg3)'};"
+      onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='${isActive?'var(--accent)':'var(--border)'}'">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:${isActive?'var(--accent)':'var(--text)'};">
+            ${isActive?'✓ ':''}${escHtml(r.name)}
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;">
+            📅 ABAP date: <strong>${r.abapDate||'—'}</strong> · Created: ${r.createdAt||'—'}
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:13px;font-weight:700;color:var(--green);">${pct}%</div>
+          <div style="font-size:10px;color:var(--text3);">${passCount}/${testCount} pass</div>
+        </div>
+      </div>
+      ${testCount ? `<div style="height:4px;background:var(--border);border-radius:2px;margin-top:8px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:var(--green);border-radius:2px;transition:width .3s;"></div>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function selectRound(roundId) {
+  currentRoundId = roundId;
+  localStorage.setItem('iap_current_round', roundId);
+  hideRoundSelector();
+  updateRoundIndicator();
+  // Refresh all views for the new round
+  populateAppSelects(); populateFilters(); updateBadges();
+  renderDashboard();
+  navigate('dashboard');
+}
+
+function createRound() {
+  const name = document.getElementById('newRoundName')?.value.trim();
+  const abapDate = document.getElementById('newRoundDate')?.value;
+  const msg = document.getElementById('roundCreateMsg');
+  if(!name) { if(msg) { msg.style.color='var(--red)'; msg.textContent='Please enter a round name.'; } return; }
+  if(!DB.rounds) DB.rounds = [];
+  // Check duplicate name
+  if(DB.rounds.find(r => r.name.toLowerCase() === name.toLowerCase())) {
+    if(msg) { msg.style.color='var(--red)'; msg.textContent='A round with this name already exists.'; } return;
+  }
+  const round = {
+    id: 'RND-' + Date.now(),
+    name,
+    abapDate: abapDate || today(),
+    createdAt: today(),
+    createdBy: currentUser
+  };
+  DB.rounds.push(round);
+  save();
+  if(msg) { msg.style.color='var(--green)'; msg.textContent=`✓ "${name}" created!`; }
+  setTimeout(() => { if(msg) msg.textContent=''; }, 2000);
+  document.getElementById('newRoundName').value = '';
+  document.getElementById('newRoundDate').value = '';
+  renderRoundList();
+  // Auto-select the new round
+  selectRound(round.id);
+}
+
+function updateRoundIndicator() {
+  const round = (DB.rounds||[]).find(r => r.id === currentRoundId);
+  const el = document.getElementById('roundIndicatorText');
+  if(el) el.textContent = round ? `${round.name} · ${round.abapDate||'—'}` : 'No round selected';
+}
+
 function doLogin() {
   const name = document.getElementById('loginName').value;
   if(!name){ showLoginError('Please select your name.'); return; }
@@ -1060,6 +1197,8 @@ function doLogin() {
   const av = document.getElementById('userAvatar');
   av.textContent = name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
   startPolling(); // begin auto-sync once logged in
+  // Show round selector after login
+  showRoundSelector();
 }
 
 function showLoginError(msg) {
@@ -1144,6 +1283,9 @@ async function refreshFromGitHub() {
 function showUserMenu() {
   if(!confirm(`Sign out as ${currentUser}?`)) return;
   currentUser = '';
+  currentRoundId = null;
+  localStorage.removeItem('iap_current_round');
+  updateRoundIndicator();
   stopPolling();
   document.getElementById('loginOverlay').style.display = 'flex';
   populateLoginNames();
@@ -1616,7 +1758,7 @@ function isOnHoldDefect(x) {
 // ─── BADGES ───────────────────────────────────────────────────
 function updateBadges() {
   // Badges always reflect ALL tests — each page has its own local filter
-  const t = DB.tests;
+  const t = currentRoundId ? DB.tests.filter(x => x.roundId === currentRoundId) : DB.tests;
   setBadge('retestBadge',    t.filter(isInRetestQueue).length);
   setBadge('blockedBadge',   t.filter(x => x.status==='Blocked' || (x.blockingDeps&&x.blockingDeps.length)).length);
   setBadge('chronicBadge',   t.filter(isChronic).length);
@@ -1933,7 +2075,11 @@ function getFilteredTests() {
   const actMod  = window._activeModuleFilter||null;
   const actApp  = window._activeAppFilter||null;
 
-  return DB.tests.filter(t=>{
+  const testsInRound = currentRoundId
+    ? DB.tests.filter(t => t.roundId === currentRoundId)
+    : DB.tests;
+
+  return testsInRound.filter(t=>{
     // Global scope filters
     if(actApp && t.appId!==actApp) return false;
     if(actMod && !actApp) {
@@ -2732,7 +2878,8 @@ function renderRetestQueue(){
   const eff=document.getElementById('retestAppFilter')?.value||'all';
 
   // Use shared filter — same logic as sidebar badge
-  let tests = DB.tests.filter(isInRetestQueue);
+  const roundTests = currentRoundId ? DB.tests.filter(t=>t.roundId===currentRoundId) : DB.tests;
+  let tests = roundTests.filter(isInRetestQueue);
   if(eff!=='all') tests = tests.filter(t => t.appId === eff);
   const totalEl = document.getElementById('retestQueueTotal');
   if(totalEl) totalEl.textContent = tests.length ? `${tests.length} total` : '';
@@ -4123,6 +4270,7 @@ function importBulkData() {
     const id = nextTestIdFrom([...DB.tests, ...newTests]);
     newTests.push({
       id,
+      roundId:       currentRoundId || null,
       appId:         app.id,
       testType:      r.testType       || '',
       section:       r.section        || '',
@@ -4154,6 +4302,7 @@ function importBulkData() {
     imported++;
   });
 
+  newTests.forEach(t => { if(!t.roundId) t.roundId = currentRoundId || null; });
   DB.tests.push(...newTests);
   save(); populateAppSelects(); populateFilters(); updateBadges();
 
@@ -4265,11 +4414,40 @@ async function init() {
   updateBadges();
   renderDashboard();
   if(currentUser && ghConfigured()) startPolling();
+  // Restore last used round if it still exists
+  const savedRound = localStorage.getItem('iap_current_round');
+  if(savedRound && (DB.rounds||[]).find(r => r.id === savedRound)) {
+    currentRoundId = savedRound;
+    updateRoundIndicator();
+  } else if(currentUser) {
+    // Show round selector if no valid round remembered
+    showRoundSelector();
+  }
 }
 
 // Migrations extracted so they can be called after both local and GitHub load
 function applyMigrations() {
-  if (!DB.modules) DB.modules = [];
+  if (!DB.modules)  DB.modules  = [];
+  if (!DB.rounds)   DB.rounds   = [];
+
+  // ── Auto-assign legacy tests (no roundId) to Round 1 ──
+  const unassigned = DB.tests.filter(t => !t.roundId);
+  if (unassigned.length > 0) {
+    // Find or create Round 1
+    let round1 = DB.rounds.find(r => r.id === 'RND-LEGACY' || r.name === 'Round 1');
+    if (!round1) {
+      round1 = {
+        id:        'RND-LEGACY',
+        name:      'Round 1',
+        abapDate:  '',
+        createdAt: today(),
+        createdBy: 'system',
+        note:      'Auto-created — existing data before rounds were introduced'
+      };
+      DB.rounds.unshift(round1);
+    }
+    unassigned.forEach(t => { t.roundId = round1.id; });
+  }
   DB.tests.forEach(t => {
     if (!t.retestCycles) {
       t.retestCycles = [];
