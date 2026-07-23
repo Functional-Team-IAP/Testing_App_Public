@@ -1042,6 +1042,11 @@ let DB = {
 
 let currentEditId   = null;
 let currentRoundId  = null; // active round — all test operations scoped to this
+
+// Returns tests scoped to the current round (or all if no round selected)
+function roundTests() {
+  return currentRoundId ? DB.tests.filter(t => t.roundId === currentRoundId) : DB.tests;
+}
 let currentAppEditId = null;
 let charts = {};
 let currentTab = 'basic';
@@ -1812,7 +1817,7 @@ function renderModulesView() {
   }
   el.innerHTML = DB.modules.map(mod=>{
     const modApps = DB.applications.filter(a=>a.moduleId===mod.id);
-    const modTests = DB.tests.filter(t=>modApps.some(a=>a.id===t.appId));
+    const modTests = roundTests().filter(t=>modApps.some(a=>a.id===t.appId));
     const total=modTests.length, passed=modTests.filter(t=>t.status==='Pass').length;
     const failed=modTests.filter(t=>t.status==='Fail').length, blocked=modTests.filter(t=>t.status==='Blocked').length;
     const pct=total?Math.round(passed/total*100):0;
@@ -1855,7 +1860,7 @@ function renderModulesView() {
 }
 
 function renderAppCard(app) {
-  const tests=DB.tests.filter(t=>t.appId===app.id);
+  const tests=roundTests().filter(t=>t.appId===app.id);
   const passed=tests.filter(t=>t.status==='Pass').length;
   const failed=tests.filter(t=>t.status==='Fail').length;
   const blocked=tests.filter(t=>t.status==='Blocked').length;
@@ -2941,7 +2946,7 @@ function renderRetestQueue(){
 function renderBlockedTests(){
   const el=document.getElementById('blockedTestsBody');
   const eff=effectiveApp('blockedAppFilter');
-  let tests=DB.tests.filter(t=>t.status==='Blocked'||(t.blockingDeps&&t.blockingDeps.length));
+  let tests=roundTests().filter(t=>t.status==='Blocked'||(t.blockingDeps&&t.blockingDeps.length));
   if(eff!=='all')tests=tests.filter(t=>t.appId===eff);
   if(!tests.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">🚫</div><p>No blocked tests! 🎉</p></div>`;return;}
   el.innerHTML=tests.map(t=>{
@@ -2966,7 +2971,7 @@ function renderBlockedTests(){
 function renderChronicFailures(){
   const el=document.getElementById('chronicBody');
   const eff=effectiveApp('chronicAppFilter');
-  let tests=DB.tests.filter(isChronic);
+  let tests=roundTests().filter(isChronic);
   if(eff!=='all')tests=tests.filter(t=>t.appId===eff);
 
   if(!tests.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">🎉</div><p>No chronic failures. All tests resolved within 2 cycles or fewer.</p></div>`;return;}
@@ -3035,7 +3040,7 @@ function renderPipeline() {
   // 2. Retest cycle defect resolved by developer
   const events = [];
 
-  DB.tests.forEach(t => {
+  roundTests().forEach(t => {
     const app = DB.applications.find(a=>a.id===t.appId);
     const devs = [t.feDev, t.beDev, t.valDev].filter(Boolean);
 
@@ -3186,7 +3191,7 @@ function renderDeployTab(el) {
 
   const html = devsToShow.map(devName => {
     const defects = [];
-    DB.tests.forEach(t => {
+    roundTests().forEach(t => {
       if(!isReadyForDeployment(t)) return;
       const lc = latestCycle(t);
       const cycleHasDevs = lc&&(lc.cycleFeDev||lc.cycleBeDev||lc.cycleValDev);
@@ -3251,7 +3256,7 @@ function renderDeployTab(el) {
     </div>`;
   }).join('');
   el.innerHTML = html.trim()||`<div class="empty-state"><div class="empty-icon">🚀</div><p>No fixes are ready for deployment yet.</p></div>`;
-  setBadge('myDefectsBadge', DB.tests.filter(isOpenDevDefect).length + DB.tests.filter(isOnHoldDefect).length + DB.tests.filter(isReadyForDeployment).length);
+  setBadge('myDefectsBadge', roundTests().filter(isOpenDevDefect).length + roundTests().filter(isOnHoldDefect).length + roundTests().filter(isReadyForDeployment).length);
 }
 
 // ─── DEVELOPER VIEW ───────────────────────────────────────────
@@ -3300,9 +3305,9 @@ function renderDevView() {
   }
 
   // Update tab counts
-  const allActive = DB.tests.filter(isOpenDevDefect).length;
-  const allOnHold = DB.tests.filter(isOnHoldDefect).length;
-  const allDeploy = DB.tests.filter(isReadyForDeployment).length;
+  const allActive = roundTests().filter(isOpenDevDefect).length;
+  const allOnHold = roundTests().filter(isOnHoldDefect).length;
+  const allDeploy = roundTests().filter(isReadyForDeployment).length;
   const cntActive = document.getElementById('devTabActiveCount');
   const cntOnHold = document.getElementById('devTabOnHoldCount');
   const cntDeploy = document.getElementById('devTabDeployCount');
@@ -3325,7 +3330,7 @@ function renderDevView() {
 
   function getDefectsForDev(devName) {
     const defects = [];
-    DB.tests.forEach(t => {
+    roundTests().forEach(t => {
       // Use shared isOpenDevDefect logic — single source of truth
       if(!isOpenDevDefect(t)) return;
 
@@ -3388,8 +3393,8 @@ function renderDevView() {
     .filter((v,i,a) => v && a.indexOf(v)===i).sort();
   const devsToShow = filterDev ? [filterDev] : allDevs;
 
-  if(!DB.tests.length) {
-    el.innerHTML=`<div class="empty-state"><div class="empty-icon">🛠️</div><p>No tests imported yet.</p></div>`;
+  if(!roundTests().length) {
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">🛠️</div><p>No tests in this round yet.</p></div>`;
     return;
   }
 
@@ -3505,7 +3510,7 @@ function renderDevView() {
   el.innerHTML = html.trim() || `<div class="empty-state"><div class="empty-icon">🎉</div><p>No open defects match the current filters.</p></div>`;
 
   // Badge uses shared function so it always matches updateBadges()
-  setBadge('myDefectsBadge', DB.tests.filter(isOpenDevDefect).length + DB.tests.filter(isOnHoldDefect).length);
+  setBadge('myDefectsBadge', roundTests().filter(isOpenDevDefect).length + roundTests().filter(isOnHoldDefect).length);
 }
 
 function renderOnHoldTab(el) {
@@ -3517,7 +3522,7 @@ function renderOnHoldTab(el) {
     .filter((v,i,a) => v && a.indexOf(v)===i).sort();
   const devsToShow = filterDev ? [filterDev] : allDevs;
 
-  if(!DB.tests.length) { el.innerHTML=`<div class="empty-state"><div class="empty-icon">⏸️</div><p>No tests imported yet.</p></div>`; return; }
+  if(!roundTests().length) { el.innerHTML=`<div class="empty-state"><div class="empty-icon">⏸️</div><p>No tests in this round yet.</p></div>`; return; }
 
   const summaryBar = document.getElementById('devSummaryBar');
   if(summaryBar) summaryBar.innerHTML = '';
@@ -3605,7 +3610,7 @@ function renderOnHoldTab(el) {
   }).join('');
 
   el.innerHTML = html.trim() || `<div class="empty-state"><div class="empty-icon">⏸️</div><p>No defects are currently on hold.</p></div>`;
-  setBadge('myDefectsBadge', DB.tests.filter(isOpenDevDefect).length + DB.tests.filter(isOnHoldDefect).length);
+  setBadge('myDefectsBadge', roundTests().filter(isOpenDevDefect).length + roundTests().filter(isOnHoldDefect).length);
 }
 
 // ─── DASHBOARD ─────────────────────────────────────────────────
@@ -3669,7 +3674,7 @@ function renderDashboard(){
   // Module → App comparison
   const modCompare = DB.modules.map(mod=>{
     const modApps = DB.applications.filter(a=>a.moduleId===mod.id);
-    const at = (eff!=='all') ? tests.filter(t=>modApps.some(a=>a.id===t.appId)) : DB.tests.filter(t=>modApps.some(a=>a.id===t.appId));
+    const at = (eff!=='all') ? tests.filter(t=>modApps.some(a=>a.id===t.appId)) : roundTests().filter(t=>modApps.some(a=>a.id===t.appId));
     const pct = at.length?Math.round(at.filter(t=>t.status==='Pass').length/at.length*100):0;
     return {name:mod.name, pct, total:at.length, apps:modApps};
   }).filter(m=>m.total>0).sort((a,b)=>b.pct-a.pct);
