@@ -3613,15 +3613,105 @@ function removeConfigItem(key,val){DB.config[key]=DB.config[key].filter(v=>v!==v
 
 // ─── EXPORT ────────────────────────────────────────────────────
 function exportCSV(){
-  const tests=getFilteredTests();
-  const headers=['Test ID','Application','Type','Section','Object','Script','Expected','Actual','Status','Priority','Complexity','Tester','FE Dev','BE Dev','Val Dev','Resolve Status','Resolved Date','Cycle Count','Latest Retest Status','Exec Date'];
-  const rows=tests.map(t=>{
-    const app=DB.applications.find(a=>a.id===t.appId);
-    const lc=latestCycle(t);
-    return [t.id,app?.name||t.appId,t.testType,t.section,t.object,t.script,t.expected,t.actual,t.status,t.priority,t.complexity,t.tester,t.feDev,t.beDev,t.valDev,t.resolveStatus,t.resolvedDate,cycleCount(t),lc?.retestStatus||'',t.execDate].map(v=>`"${(v||'').toString().replace(/"/g,'""')}"`).join(',');
+  const tests = getFilteredTests();
+
+  // ── Helper: wrap value for CSV ──
+  const q = v => `"${(v||'').toString().replace(/"/g,'""')}"`;
+
+  // ── Find max cycle count across exported tests ──
+  const maxCycles = tests.reduce((m,t) => Math.max(m, (t.retestCycles||[]).length), 0);
+
+  // ── Headers: match import format exactly, then cycle columns ──
+  const baseHeaders = [
+    'Test ID','Application Name','Module','Test Type','Connecting System','Section',
+    'Test Script','Expected Result','Actual Result',
+    'Status','Complexity','Priority',
+    'Start Date','Test Execution Date','Tester Name',
+    'Tester Remarks / Notes','Attachment / Screenshot Link',
+    'Front End Developer','Back End Developer','Validation Developer','Developer Notes',
+    'Resolve Status','Resolved Date'
+  ];
+
+  // Per-cycle headers (repeated for each cycle)
+  const cycleHeaders = [];
+  for(let c = 1; c <= maxCycles; c++){
+    cycleHeaders.push(
+      `Cycle ${c} - Retest Status`,
+      `Cycle ${c} - Retest Date`,
+      `Cycle ${c} - Retest Priority`,
+      `Cycle ${c} - Tester`,
+      `Cycle ${c} - Retest Remarks`,
+      `Cycle ${c} - FE Developer`,
+      `Cycle ${c} - BE Developer`,
+      `Cycle ${c} - Val Developer`,
+      `Cycle ${c} - Dev Notes`,
+      `Cycle ${c} - Resolve Status`,
+      `Cycle ${c} - Resolved Date`
+    );
+  }
+
+  const headers = [...baseHeaders, ...cycleHeaders];
+
+  const rows = tests.map(t => {
+    const app = DB.applications.find(a => a.id === t.appId);
+    const mod = DB.modules.find(m => m.id === app?.moduleId);
+
+    const base = [
+      t.id,
+      app?.name || '',
+      mod?.name || '',
+      t.testType || '',
+      t.connectingApp || '',
+      t.section || '',
+      t.script || '',
+      t.expected || '',
+      t.actual || '',
+      t.status || '',
+      t.complexity || '',
+      t.priority || '',
+      t.startDate || '',
+      t.execDate || '',
+      t.tester || '',
+      t.remarks || '',
+      t.attachment || '',
+      t.feDev || '',
+      t.beDev || '',
+      t.valDev || '',
+      t.devNotes || '',
+      t.resolveStatus || '',
+      t.resolvedDate || ''
+    ];
+
+    // Add cycle data — pad with empty if fewer cycles than max
+    const cycleCols = [];
+    for(let c = 0; c < maxCycles; c++){
+      const cy = (t.retestCycles || [])[c];
+      cycleCols.push(
+        cy?.retestStatus || '',
+        cy?.retestDate || '',
+        cy?.retestPriority || '',
+        cy?.tester || '',
+        cy?.remarks || '',
+        cy?.cycleFeDev || '',
+        cy?.cycleBeDev || '',
+        cy?.cycleValDev || '',
+        cy?.devNotes || '',
+        cy?.resolveStatus || '',
+        cy?.resolvedDate || ''
+      );
+    }
+
+    return [...base, ...cycleCols].map(q).join(',');
   });
-  const csv=[headers.join(','),...rows].join('\n');
-  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='qa-nexus-export.csv';a.click();
+
+  const csv = [headers.map(q).join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `iap-testing-export-${today()}.csv`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 300);
 }
 
 // ─── BULK UPLOAD ───────────────────────────────────────────────
