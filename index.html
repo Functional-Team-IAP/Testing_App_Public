@@ -1038,6 +1038,7 @@ let DB = {
     retestStatus: ['Not Started','In Progress','Pass','Fail','Blocked'],
     complexity:     ['Low','Medium','High','Critical'],
     testTypes:      ['Create with Reference','Create without Reference','All'],
+    claimTypes:     ['ZDR1','ZDR2','ZCR1','ZCR2'],
     connectingApps: ['IAP RGM','SAP RGM','All']
   }
 };
@@ -3750,6 +3751,7 @@ function renderConfig(){
     {key:'priorities',     label:'Priorities'},
     {key:'complexity',     label:'Complexity Values'},
     {key:'testTypes',      label:'Test Types (Global Defaults)'},
+    {key:'claimTypes',     label:'Claim Types'},
 
     {key:'connectingApps', label:'Connecting Application Values'},
   ];
@@ -4501,7 +4503,10 @@ function applyMigrations() {
   if(DB.config.retestStatus && DB.config.retestStatus.includes('Passed'))
     DB.config.retestStatus = ['Not Started','In Progress','Pass','Fail','Blocked'];
   delete DB.config.sections;
-  if(!DB.config.testTypes)      DB.config.testTypes      = ['Create with Reference','Create without Reference','All'];
+  if(!DB.config.testTypes || !DB.config.testTypes.length)
+    DB.config.testTypes  = ['Create with Reference','Create without Reference','All'];
+  if(!DB.config.claimTypes || !DB.config.claimTypes.length)
+    DB.config.claimTypes = ['ZDR1','ZDR2','ZCR1','ZCR2'];
   if(!DB.config.connectingApps) DB.config.connectingApps = ['IAP RGM','SAP RGM','All'];
 }
 
