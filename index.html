@@ -141,7 +141,7 @@ tr:hover td{background:var(--bg3)}
 .form-control::placeholder{color:var(--text3)}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
-textarea.form-control{resize:vertical;min-height:72px}
+textarea.form-control{resize:none;min-height:72px;overflow-y:hidden;}
 
 /* ─── MODAL ──────────────────────────────────────────────────── */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;padding:20px}
@@ -640,7 +640,7 @@ textarea.form-control{resize:vertical;min-height:72px}
             <input type="checkbox" id="bulkHasHeader" checked> First row is header
           </label>
         </div>
-        <textarea class="form-control" id="bulkPasteArea" style="min-height:160px;font-family:var(--font-mono);font-size:11px;" placeholder="Paste your Excel data here (Ctrl+A, Ctrl+C from Excel, then Ctrl+V here)…"></textarea>
+        <textarea class="form-control" id="bulkPasteArea" data-no-autogrow style="min-height:160px;resize:vertical;overflow-y:auto;font-family:var(--font-mono);font-size:11px;" placeholder="Paste your Excel data here (Ctrl+A, Ctrl+C from Excel, then Ctrl+V here)…"></textarea>
         <div style="margin-top:10px;">
           <button class="btn btn-primary" onclick="parseBulkData()">▶ Parse &amp; Preview</button>
           <button class="btn btn-secondary" onclick="clearBulkData()" style="margin-left:8px;">✕ Clear</button>
@@ -1441,21 +1441,35 @@ function mergeCollection(localArr, remoteArr, tombstones) {
 
 // Config is just picklists (tester names, status values, etc) — union rather
 // than pick-one, so someone adding a new claim type never gets clobbered.
-function mergeConfigLists(localCfg, remoteCfg) {
+// configTombstones (if given) excludes specific values that were deliberately
+// removed — otherwise a plain union would keep resurrecting deleted items.
+function mergeConfigLists(localCfg, remoteCfg, configTombstones) {
   const merged = { ...(remoteCfg||{}), ...(localCfg||{}) };
   Object.keys(merged).forEach(k => {
     if(Array.isArray(localCfg?.[k]) && Array.isArray(remoteCfg?.[k])) {
-      merged[k] = Array.from(new Set([...(remoteCfg[k]||[]), ...(localCfg[k]||[])]));
+      let vals = Array.from(new Set([...(remoteCfg[k]||[]), ...(localCfg[k]||[])]));
+      const deadKeys = configTombstones?.[k];
+      if(deadKeys) vals = vals.filter(v => !(v in deadKeys));
+      merged[k] = vals;
     }
   });
   return merged;
 }
 
+function mergeConfigTombstones(a, b) {
+  const out = {};
+  const keys = new Set([...Object.keys(a||{}), ...Object.keys(b||{})]);
+  keys.forEach(k => { out[k] = mergeTombstones(a?.[k], b?.[k]); });
+  return out;
+}
+
 function mergeDB(localDB, remoteDB) {
   const lts = localDB._tombstones||{}, rts = remoteDB._tombstones||{};
+  const configTombstones = mergeConfigTombstones(lts.config, rts.config);
   const tombstones = {
     tests: mergeTombstones(lts.tests, rts.tests),
-    applications: mergeTombstones(lts.applications, rts.applications)
+    applications: mergeTombstones(lts.applications, rts.applications),
+    config: configTombstones
   };
   return {
     ...remoteDB, ...localDB,
@@ -1463,7 +1477,7 @@ function mergeDB(localDB, remoteDB) {
     applications: mergeCollection(localDB.applications, remoteDB.applications, tombstones.applications),
     rounds:       mergeCollection(localDB.rounds, remoteDB.rounds),
     tests:        mergeCollection(localDB.tests, remoteDB.tests, tombstones.tests),
-    config:       mergeConfigLists(localDB.config, remoteDB.config),
+    config:       mergeConfigLists(localDB.config, remoteDB.config, configTombstones),
     _tombstones:  tombstones
   };
 }
@@ -2578,6 +2592,7 @@ function switchTestTab(tab,el) {
   });
   if(tab==='thread'&&currentEditId) renderThreadList(DB.tests.find(t=>t.id===currentEditId));
   if(tab==='retestcycles') renderCycleList();
+  autoGrowAll(document.getElementById('tab-'+tab));
 }
 
 function toggleRole(role) {
@@ -3964,8 +3979,17 @@ function renderConfigGroup({key,label}){
   const tags=items.map(v=>`<div class="config-tag"><span>${escHtml(v)}</span><button class="config-tag-remove" onclick="removeConfigItem('${key}','${v.replace(/'/g,"\\'")}')">✕</button></div>`).join('');
   return `<div class="card config-section"><div class="config-section-title">${label}</div><div class="config-tags">${tags||'<span style="color:var(--text3);font-size:12px;">No values</span>'}</div><div class="config-add-row"><input class="form-control" id="cfg_inp_${key}" placeholder="Add new…" onkeydown="if(event.key==='Enter')addConfigItem('${key}')"><button class="btn btn-primary btn-sm" onclick="addConfigItem('${key}')">+ Add</button></div></div>`;
 }
-function addConfigItem(key){const inp=document.getElementById(`cfg_inp_${key}`);const val=inp.value.trim();if(!val)return;if(!DB.config[key])DB.config[key]=[];if(!DB.config[key].includes(val)){DB.config[key].push(val);save();renderConfig();}inp.value='';}
-function removeConfigItem(key,val){if(!DB.config[key])return;DB.config[key]=DB.config[key].filter(v=>v!==val);save();renderConfig();}
+function addConfigItem(key){const inp=document.getElementById(`cfg_inp_${key}`);const val=inp.value.trim();if(!val)return;if(!DB.config[key])DB.config[key]=[];if(!DB.config[key].includes(val)){DB.config[key].push(val);clearConfigTombstone(key,val);save();renderConfig();}inp.value='';}
+function removeConfigItem(key,val){if(!DB.config[key])return;DB.config[key]=DB.config[key].filter(v=>v!==val);markConfigDeleted(key,val);save();renderConfig();}
+function markConfigDeleted(key,val){
+  if(!DB._tombstones) DB._tombstones={};
+  if(!DB._tombstones.config) DB._tombstones.config={};
+  if(!DB._tombstones.config[key]) DB._tombstones.config[key]={};
+  DB._tombstones.config[key][val]=Date.now();
+}
+function clearConfigTombstone(key,val){
+  if(DB._tombstones && DB._tombstones.config && DB._tombstones.config[key]) delete DB._tombstones.config[key][val];
+}
 
 // ─── EXPORT ────────────────────────────────────────────────────
 function exportCSV(){
@@ -4202,7 +4226,8 @@ function parseDate(raw) {
   return ''; // unparseable
 }
 function parseBulkLine(line, sep) {
-  if(sep === '\t') return line.split('\t').map(v => v.trim());
+  // Quote-aware for both comma and tab data — a quoted field can safely
+  // contain the separator character or a line break without breaking columns.
   const result = []; let cur = '', inQ = false;
   for(let i = 0; i < line.length; i++) {
     const c = line[i];
@@ -4219,11 +4244,10 @@ function parseBulkLine(line, sep) {
 
 // ── CSV-aware row splitter: handles quoted fields with embedded newlines ──
 function splitCsvRows(raw, sep) {
-  // Tab-separated: newlines inside fields are extremely rare, use simple split
-  if(sep === '\t') {
-    return raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim() !== '');
-  }
-  // Comma-separated: walk char-by-char respecting double-quoted fields
+  // Quote-aware char walk — used for BOTH comma and tab data. Excel wraps a
+  // cell in quotes whenever it contains an embedded line break (e.g. bullet
+  // points typed with Alt+Enter), even when copying as tab-separated text,
+  // so without this a multi-line cell gets sliced into bogus extra "rows".
   const rows = [];
   let cur = '';
   let inQ = false;
@@ -4271,8 +4295,9 @@ function parseBulkData() {
   dataLines.forEach((line, idx) => {
     const rowNum = hasHeader ? idx + 2 : idx + 1;
     const c = parseBulkLine(line, sep);
-    // Collapse any embedded newlines inside a field value to a single space
-    const g = i => (c[i] || '').replace(/\r?\n/g, ' ').trim();
+    // Keep embedded newlines (bullets, multi-line sentences) intact —
+    // only trim stray whitespace at the very start/end of the value.
+    const g = i => (c[i] || '').replace(/\r\n/g, '\n').trim();
     const row = {
       _rowNum: rowNum,
       appName:             g(0),  moduleName:         g(1),
@@ -4593,7 +4618,29 @@ function effectiveApp(filterId){
   return document.getElementById(filterId)?.value||'all';
 }
 function onGlobalSearch(){if(document.getElementById('page-tests').classList.contains('active'))renderTestTable();}
-function openModal(id){document.getElementById(id).classList.add('open');}
+// ─── AUTO-GROW TEXTAREAS ────────────────────────────────────────
+// Textareas resize to fit their full content (bullets, multi-line scripts,
+// etc.) instead of showing a scrollbar or clipping text.
+function autoGrowTextarea(el) {
+  if(!el || el.hasAttribute('data-no-autogrow')) return;
+  el.style.height = 'auto';
+  el.style.height = (el.scrollHeight) + 'px';
+}
+function autoGrowAll(scope) {
+  (scope || document).querySelectorAll('textarea.form-control:not([data-no-autogrow])').forEach(autoGrowTextarea);
+}
+// Covers typing directly into a field
+document.addEventListener('input', e => {
+  if(e.target && e.target.matches && e.target.matches('textarea.form-control:not([data-no-autogrow])')) autoGrowTextarea(e.target);
+});
+
+function openModal(id){
+  const el = document.getElementById(id);
+  el.classList.add('open');
+  // Textareas only report their real scrollHeight once actually visible —
+  // resize now that the modal (and its currently-active tab) is showing.
+  autoGrowAll(el);
+}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 document.querySelectorAll('.modal-overlay').forEach(el=>{el.addEventListener('click',e=>{if(e.target===el)closeModal(el.id);});});
 
