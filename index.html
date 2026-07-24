@@ -4460,6 +4460,9 @@ async function init() {
   if(savedRound && (DB.rounds||[]).find(r => r.id === savedRound)) {
     currentRoundId = savedRound;
     updateRoundIndicator();
+    // Badges/dashboard were computed above before the round was known — redo now that it's scoped
+    updateBadges();
+    renderDashboard();
   } else if(currentUser) {
     // Show round selector if no valid round remembered
     showRoundSelector();
