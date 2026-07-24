@@ -584,7 +584,8 @@ textarea.form-control{resize:vertical;min-height:72px}
             </tr>
             ${[
               ['A / 0','Application Name','Must match an existing application name exactly'],
-              ['B / 1','Test Type','Auto-added to module if new'],
+              ['B / 1','Module','Must match a module in the system'],
+              ['C / 2','Test Type','Auto-added to module if new'],
               ['C / 2','Section','Auto-added to application if new'],
               ['C / 2','Claim Type','e.g. ZDR1, ZDR2, ZCR1, ZCR2'],
               ['D / 3','Connecting System','e.g. All, IAP RGM, SAP RGM'],
@@ -2151,7 +2152,7 @@ function renderTestTable(tests=null) {
     const hasBlock=t.blockingDeps&&t.blockingDeps.length;
     return `<tr data-id="${t.id}">
       <td style="padding:9px 8px;"><input type="checkbox" class="row-check" data-id="${t.id}" onchange="onRowCheckChange()" style="cursor:pointer;accent-color:var(--accent);width:14px;height:14px;"></td>
-      <td class="td-mono">${t.id}${hasBlock?` <span class="dot yellow" title="Has deps"></span>`:''}${isChronic(t)?` <span class="dot purple" title="Chronic failure"></span>`:''}</td>
+      <td class="td-mono" style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;" onclick="openEditModal('${t.id}')" title="Open test">${t.id}${hasBlock?` <span class="dot yellow" title="Has deps"></span>`:''}${isChronic(t)?` <span class="dot purple" title="Chronic failure"></span>`:''}</td>
       <td style="font-size:11px;color:var(--purple);">${mod?.name||'—'}</td>
       <td style="font-size:11px;color:var(--text2);">${app?.name||t.appId}</td>
       <td><span class="badge badge-notstarted" style="font-size:10px;">${t.testType||'—'}</span></td>
@@ -3897,7 +3898,7 @@ function exportCSV(){
 // 24 Retest Resolved Date | 25 Retest Resolve Status
 
 const BULK_COL_HEADERS = [
-  'Application Name','Test Type','Claim Type','Connecting System','Section','Test Script','Expected Result','Actual Result',
+  'Application Name','Module','Test Type','Claim Type','Connecting System','Section','Test Script','Expected Result','Actual Result',
   'Status','Complexity','Priority','Start Date','Tester Remarks / Notes','Attachment / Screenshot Link',
   'Test Execution Date','Tester Name','Front End Developer','Back End Developer',
   'Validation Developer','Developer Notes','Resolved Date','Resolve Status',
@@ -3915,8 +3916,9 @@ function downloadTemplate() {
   const secEx  = DB.applications[0]?.sections?.[0] || 'Claim Header';
   const q = v => `"${(v||'').toString().replace(/"/g,'""')}"`;
   const header = BULK_COL_HEADERS.map(q).join(',');
+  const modEx2  = modEx?.name || 'Claims Management';
   const example = [
-    appEx, ttEx, '', secEx,
+    appEx, modEx2, ttEx, 'ZDR1', 'All', secEx,
     'User creates a claim with valid reference number',
     'Claim is saved and reference linked','Claim saved successfully',
     'Pass','Medium','High','2024-05-01',
@@ -4089,21 +4091,21 @@ function parseBulkData() {
     const g = i => (c[i] || '').replace(/\r?\n/g, ' ').trim();
     const row = {
       _rowNum: rowNum,
-      appName:             g(0),  testType:           g(1),
-      claimType:           g(2),
-      connectingSystem:    g(3),
-      section:             g(4),  script:             g(5),
-      expected:            g(6),  actual:             g(7),
-      status:              g(8),  complexity:         g(9),
-      priority:            g(10), startDate:          parseDate(g(11)),
-      remarks:             g(12), attachment:         g(13),
-      execDate:            parseDate(g(14)), tester:  g(15),
-      feDev:               g(16), beDev:              g(17),
-      valDev:              g(18), devNotes:           g(19),
-      resolvedDate:        parseDate(g(20)), resolveStatus: g(21),
-      retestDate:          parseDate(g(22)), retestStatus:  g(23),
-      retestPriority:      g(24), retestRemarks:      g(25),
-      retestResolvedDate:  parseDate(g(26)), retestResolveStatus: g(27),
+      appName:             g(0),  moduleName:         g(1),
+      testType:            g(2),  claimType:          g(3),
+      connectingSystem:    g(4),
+      section:             g(5),  script:             g(6),
+      expected:            g(7),  actual:             g(8),
+      status:              g(9),  complexity:         g(10),
+      priority:            g(11), startDate:          parseDate(g(12)),
+      remarks:             g(13), attachment:         g(14),
+      execDate:            parseDate(g(15)), tester:  g(16),
+      feDev:               g(17), beDev:              g(18),
+      valDev:              g(19), devNotes:           g(20),
+      resolvedDate:        parseDate(g(21)), resolveStatus: g(22),
+      retestDate:          parseDate(g(23)), retestStatus:  g(24),
+      retestPriority:      g(25), retestRemarks:      g(26),
+      retestResolvedDate:  parseDate(g(27)), retestResolveStatus: g(28),
     };
     // Accept rows that have a script OR at least an expected result (script may be in expected for some data formats)
     if(row.script || row.expected) {
@@ -4139,6 +4141,15 @@ function renderBulkPreview() {
     if(!app) {
       hardErrors.push(`Row ${r._rowNum}: Application "<strong>${escHtml(r.appName)}</strong>" not found — create it on the Applications page first`);
       return;
+    }
+    // Use moduleName from CSV to help auto-create test types in the right module
+    if(r.moduleName) {
+      const mod = DB.modules.find(m => m.name.toLowerCase() === r.moduleName.trim().toLowerCase()
+        || m.id === app.moduleId);
+      if(mod && r.testType && !(mod.testTypes||[]).includes(r.testType)) {
+        if(!mod.testTypes) mod.testTypes = [];
+        // handled by auto-add below
+      }
     }
     const secKey = r.appName.trim().toLowerCase() + '||' + r.section;
     if(r.section && !(app.sections||[]).includes(r.section) && !newSections.has(secKey)) {
@@ -4189,7 +4200,7 @@ function renderBulkPreview() {
   document.getElementById('bulkImportCount').textContent = parsedBulkRows.length;
 
   document.getElementById('bulkPreviewHead').innerHTML =
-    `<tr><th>#</th><th>App</th><th>Type</th><th>Claim Type</th><th>Conn. System</th><th>Section</th><th>Test Script</th><th>Status</th><th>Priority</th><th>Exec Date ✓</th><th>Tester</th><th>Resolve</th><th>Retest</th><th>✓</th></tr>`;
+    `<tr><th>#</th><th>App</th><th>Module</th><th>Type</th><th>Claim Type</th><th>Conn. System</th><th>Section</th><th>Test Script</th><th>Status</th><th>Priority</th><th>Exec Date ✓</th><th>Tester</th><th>Resolve</th><th>Retest</th><th>✓</th></tr>`;
 
   document.getElementById('bulkPreviewBody').innerHTML =
     parsedBulkRows.slice(0, 100).map(r => {
@@ -4199,6 +4210,7 @@ function renderBulkPreview() {
       return `<tr style="${!ok?'background:var(--red-dim);':warn?'background:var(--yellow-dim);':''}">
         <td class="td-mono" style="font-size:10px;">${r._rowNum}</td>
         <td style="font-size:11px;">${escHtml(r.appName)||'<span style="color:var(--red)">MISSING</span>'}</td>
+        <td style="font-size:11px;">${escHtml(r.moduleName)||'—'}</td>
         <td style="font-size:11px;">${escHtml(r.testType)||'—'}</td>
         <td style="font-size:11px;font-family:var(--font-mono);">${escHtml(r.claimType)||'—'}</td>
         <td style="font-size:11px;">${escHtml(r.connectingSystem)||'—'}</td>
