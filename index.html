@@ -383,7 +383,7 @@ textarea.form-control{resize:vertical;min-height:72px}
 </div>
 
 <!-- ─── SYNC STATUS BAR ──────────────────────────────────────── -->
-<div id="syncBar"><span class="sync-dot"></span><span id="syncMsg">Saving…</span></div>
+<div id="syncBar"><span class="sync-dot"></span><span id="syncMsg">Saving…</span><span id="syncDismiss" onclick="document.getElementById('syncBar').style.display='none'" style="margin-left:6px;cursor:pointer;opacity:.6;font-weight:700;">✕</span></div>
 
 <!-- ═══ SIDEBAR ════════════════════════════════════════════════ -->
 <nav id="sidebar">
@@ -1262,8 +1262,19 @@ function showGitHubSettings() {
           GH.sha = ''; // clear SHA so it creates/overwrites
           localStorage.setItem('gh_sha', '');
           await pushToGitHub();
-          repairBtn.textContent = '✅ Done — GitHub file restored from local data';
-          setTimeout(() => { repairBtn.remove(); }, 3000);
+          // Verify the fix actually took — re-fetch and re-parse rather than assuming success
+          const verified = await verifyGitHubJSON();
+          if(verified) {
+            repairBtn.textContent = '✅ Done — verified GitHub file is now valid';
+            showSync('saved', '✅ Repair verified — GitHub file is valid');
+            // Pull the confirmed-good data back in so the current session reflects it
+            await refreshFromGitHub();
+          } else {
+            repairBtn.textContent = '⚠ Push succeeded but file still won\'t parse — try again or check manually';
+            showSync('error', '⚠ Repair did not fix the file — see Repair button for detail');
+          }
+          repairBtn.disabled = false;
+          setTimeout(() => { repairBtn.remove(); }, 5000);
         };
         btn.after(repairBtn);
       }
@@ -1327,7 +1338,10 @@ async function pollForChanges() {
     for(let i=0;i<_bin.length;i++) _bytes[i]=_bin.charCodeAt(i);
     const raw = new TextDecoder().decode(_bytes);
       let p;
-      try { p = JSON.parse(raw); } catch(e) { return; } // skip corrupt poll result
+      try { p = JSON.parse(raw); } catch(e) {
+        showSync('error', '⚠ GitHub file is corrupted — using local data. Click ⚙ Sync → Repair to fix.');
+        return; // skip corrupt poll result — don't advance GH.sha so we keep checking
+      }
       GH.sha = data.sha;
       localStorage.setItem('gh_sha', GH.sha);
       // Merge remote data into DB
@@ -1431,6 +1445,27 @@ async function refreshGitHubSHA() {
       localStorage.setItem('gh_sha', GH.sha);
     }
   } catch(e) {}
+}
+
+async function verifyGitHubJSON() {
+  if(!ghConfigured()) return false;
+  try {
+    const url = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH_FILE}?t=${Date.now()}`;
+    const res = await fetch(url, { headers: { 'Authorization': `token ${GH.token}` } });
+    if(!res.ok) return false;
+    const data = await res.json();
+    const _b64 = data.content.replace(/\n/g,'');
+    const _bin = atob(_b64);
+    const _bytes = new Uint8Array(_bin.length);
+    for(let i=0;i<_bin.length;i++) _bytes[i]=_bin.charCodeAt(i);
+    const raw = new TextDecoder().decode(_bytes);
+    JSON.parse(raw); // throws if still invalid
+    GH.sha = data.sha;
+    localStorage.setItem('gh_sha', GH.sha);
+    return true;
+  } catch(e) {
+    return false;
+  }
 }
 
 async function loadFromGitHub() {
