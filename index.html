@@ -1069,6 +1069,13 @@ const GH_FILE = 'qa-nexus-db.json';
 let currentUser = '';
 let saveTimer   = null;
 
+// ─── MERGE STATE ────────────────────────────────────────────────
+// Snapshot of DB as of the last successful sync with GitHub. Used to detect
+// which records this browser tab has actually changed since then, so that
+// simultaneous edits from other team members merge in cleanly instead of
+// one person's save wiping out another's.
+let _syncSnapshot = null;
+
 function ghConfigured() { return !!(GH.owner && GH.repo && GH.token); }
 
 function saveGitHubConfig() {
@@ -1344,17 +1351,16 @@ async function pollForChanges() {
       }
       GH.sha = data.sha;
       localStorage.setItem('gh_sha', GH.sha);
-      // Merge remote data into DB
-      DB = { ...DB, ...p };
-      DB.config = { ...DB.config, ...(p.config||{}) };
+      // Merge remote data into DB record-by-record — protects any local
+      // edits in this tab that haven't been pushed yet.
+      stampDirtyRecords();
+      DB = mergeDB(DB, p);
+      _syncSnapshot = snapshotForSync(DB);
       localStorage.setItem('iap_testing_db', JSON.stringify(DB));
       applyMigrations();
       // Refresh whichever page is currently visible
       populateAppSelects(); populateFilters(); updateBadges();
-      const pages = ['dashboard','tests','retest','blocked','chronic','devview','onhold','pipeline','apps','config','bulk'];
-      pages.forEach(pg => {
-        if(document.getElementById('page-'+pg)?.classList.contains('active')) navigate(pg);
-      });
+      refreshVisiblePage();
       // Show a subtle "updated" indicator
       showSync('saved', '🔄 Updated from GitHub');
     }
@@ -1370,8 +1376,106 @@ function showSync(state, msg) {
   if(state === 'saved') setTimeout(() => bar.style.display='none', 2500);
 }
 
+// ─── MERGE LOGIC ────────────────────────────────────────────────
+// Why this exists: several people share one GitHub-backed JSON file. Without
+// this, saving always overwrites the *entire* file — so if two people edit
+// different tests within the same ~30s window, whoever saves second erases
+// whoever saved first. Instead we merge record-by-record: for anything with
+// an id (a test, an application), whichever copy was edited more recently
+// wins, and anything only one side has (a brand new test, or an edit the
+// other side hasn't seen yet) is kept rather than dropped.
+
+function snapshotForSync(db) {
+  return JSON.parse(JSON.stringify(db));
+}
+
+function stripTS(rec) { const c = { ...rec }; delete c._updatedAt; return c; }
+
+// Stamps _updatedAt on any record that differs from the last-known-synced
+// snapshot — i.e. anything this tab has actually created or edited locally.
+function stampDirtyRecords() {
+  if(!_syncSnapshot) { _syncSnapshot = snapshotForSync(DB); return; }
+  const now = Date.now();
+  ['modules','applications','rounds','tests'].forEach(coll => {
+    const prevMap = new Map((_syncSnapshot[coll]||[]).map(r => [r.id, r]));
+    (DB[coll]||[]).forEach(rec => {
+      const prev = prevMap.get(rec.id);
+      if(!prev || JSON.stringify(stripTS(prev)) !== JSON.stringify(stripTS(rec))) {
+        rec._updatedAt = now;
+      }
+    });
+  });
+}
+
+// Records a deletion so a merge doesn't silently resurrect it if the other
+// side's copy (which doesn't know about the delete yet) looks "newer".
+function markDeleted(collection, ids) {
+  if(!DB._tombstones) DB._tombstones = {};
+  if(!DB._tombstones[collection]) DB._tombstones[collection] = {};
+  const now = Date.now();
+  (Array.isArray(ids) ? ids : [ids]).forEach(id => { DB._tombstones[collection][id] = now; });
+}
+
+function mergeTombstones(a, b) {
+  const out = { ...(a||{}) };
+  Object.entries(b||{}).forEach(([id,ts]) => { out[id] = Math.max(out[id]||0, ts); });
+  return out;
+}
+
+// Union-by-id merge of one collection (tests, applications, etc). Newer
+// _updatedAt wins on conflicts; records only present on one side are kept;
+// tombstoned ids are dropped unless a side has a genuinely newer edit.
+function mergeCollection(localArr, remoteArr, tombstones) {
+  const map = new Map();
+  (remoteArr||[]).forEach(r => map.set(r.id, r));
+  (localArr||[]).forEach(l => {
+    const r = map.get(l.id);
+    if(!r) { map.set(l.id, l); return; }
+    const lt = l._updatedAt||0, rt = r._updatedAt||0;
+    map.set(l.id, lt >= rt ? l : r);
+  });
+  if(tombstones) {
+    Object.entries(tombstones).forEach(([id, delTs]) => {
+      const rec = map.get(id);
+      if(rec && delTs >= (rec._updatedAt||0)) map.delete(id);
+    });
+  }
+  return Array.from(map.values());
+}
+
+// Config is just picklists (tester names, status values, etc) — union rather
+// than pick-one, so someone adding a new claim type never gets clobbered.
+function mergeConfigLists(localCfg, remoteCfg) {
+  const merged = { ...(remoteCfg||{}), ...(localCfg||{}) };
+  Object.keys(merged).forEach(k => {
+    if(Array.isArray(localCfg?.[k]) && Array.isArray(remoteCfg?.[k])) {
+      merged[k] = Array.from(new Set([...(remoteCfg[k]||[]), ...(localCfg[k]||[])]));
+    }
+  });
+  return merged;
+}
+
+function mergeDB(localDB, remoteDB) {
+  const lts = localDB._tombstones||{}, rts = remoteDB._tombstones||{};
+  const tombstones = {
+    tests: mergeTombstones(lts.tests, rts.tests),
+    applications: mergeTombstones(lts.applications, rts.applications)
+  };
+  return {
+    ...remoteDB, ...localDB,
+    modules:      mergeCollection(localDB.modules, remoteDB.modules),
+    applications: mergeCollection(localDB.applications, remoteDB.applications, tombstones.applications),
+    rounds:       mergeCollection(localDB.rounds, remoteDB.rounds),
+    tests:        mergeCollection(localDB.tests, remoteDB.tests, tombstones.tests),
+    config:       mergeConfigLists(localDB.config, remoteDB.config),
+    _tombstones:  tombstones
+  };
+}
+
 // ─── PERSISTENCE — GitHub API ──────────────────────────────────
 function save() {
+  // Mark which records this tab has actually touched since the last sync
+  stampDirtyRecords();
   // Always keep a local copy as fallback
   localStorage.setItem('iap_testing_db', JSON.stringify(DB));
   // Debounce GitHub saves — wait 1.5s of inactivity before pushing
@@ -1379,12 +1483,37 @@ function save() {
   saveTimer = setTimeout(pushToGitHub, 1500);
 }
 
-async function pushToGitHub() {
+async function pushToGitHub(_attempt) {
+  const attempt = _attempt || 1;
   if(!ghConfigured()) return;
   _isSaving = true;
   stopPolling();
-  showSync('saving', 'Saving to GitHub…');
+  showSync('saving', attempt > 1 ? `Merging changes (attempt ${attempt})…` : 'Saving to GitHub…');
   try {
+    // 1. Fetch whatever is currently on GitHub right now (someone else may
+    //    have saved since we last synced) so we can merge instead of overwrite.
+    const getUrl = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH_FILE}?t=${Date.now()}`;
+    const getRes = await fetch(getUrl, { headers: { 'Authorization': `token ${GH.token}` } });
+    let remoteDB = null, remoteSha = GH.sha;
+    if(getRes.ok) {
+      const data = await getRes.json();
+      remoteSha = data.sha;
+      const _b64 = data.content.replace(/\n/g,'');
+      const _bin = atob(_b64);
+      const _bytes = new Uint8Array(_bin.length);
+      for(let i=0;i<_bin.length;i++) _bytes[i]=_bin.charCodeAt(i);
+      const raw = new TextDecoder().decode(_bytes);
+      try { remoteDB = JSON.parse(raw); }
+      catch(parseErr) { remoteDB = null; } // remote corrupt — fall back to pushing local as-is below
+    } else if(getRes.status !== 404) {
+      throw new Error(`GitHub ${getRes.status}`);
+    }
+
+    // 2. Merge (or, if remote is unreadable/missing, just use local as the merge result).
+    const merged = remoteDB ? mergeDB(DB, remoteDB) : DB;
+    DB = merged;
+
+    // 3. Write the merged result back.
     const body = JSON.stringify(DB);
     const bytes = new TextEncoder().encode(body);
     let binary = '';
@@ -1393,13 +1522,13 @@ async function pushToGitHub() {
       binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
     }
     const encoded = btoa(binary);
-    const url = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH_FILE}`;
+    const putUrl = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH_FILE}`;
     const payload = {
       message: `IAP Testing App update by ${currentUser||'system'} on ${today()}`,
       content: encoded,
-      ...(GH.sha ? { sha: GH.sha } : {})
+      ...(remoteSha ? { sha: remoteSha } : {})
     };
-    const res = await fetch(url, {
+    const res = await fetch(putUrl, {
       method: 'PUT',
       headers: {
         'Authorization': `token ${GH.token}`,
@@ -1408,19 +1537,24 @@ async function pushToGitHub() {
       body: JSON.stringify(payload)
     });
     if(!res.ok) {
-      // If conflict (SHA mismatch), fetch latest SHA and retry once
-      if(res.status === 409 || res.status === 422) {
-        await refreshGitHubSHA();
-        await pushToGitHub();
-        return;
+      // Someone saved again in the brief window between our fetch and our write.
+      // Re-fetch + re-merge + retry, rather than blindly overwriting their save.
+      if((res.status === 409 || res.status === 422) && attempt < 5) {
+        _isSaving = false;
+        return pushToGitHub(attempt + 1);
       }
       throw new Error(`GitHub ${res.status}`);
     }
     const data = await res.json();
     GH.sha = data.content.sha;
     localStorage.setItem('gh_sha', GH.sha);
+    localStorage.setItem('iap_testing_db', JSON.stringify(DB));
+    _syncSnapshot = snapshotForSync(DB); // this is now the agreed-upon synced state
     _isSaving = false;
-    showSync('saved', '✅ Saved to GitHub');
+    showSync('saved', '✅ Saved & merged with GitHub');
+    // Local DB may have picked up other people's changes during the merge — refresh what's on screen
+    refreshVisiblePage();
+    updateBadges();
     startPolling(); // resume polling after save
   } catch(e) {
     _isSaving = false;
@@ -1433,6 +1567,15 @@ async function pushToGitHub() {
     showSync('error', `⚠ Save failed: ${hint}`);
     console.error('GitHub push error:', e);
   }
+}
+
+// Re-renders whichever page is currently on screen — used after a merge
+// pulls in other people's changes so the UI reflects the merged result.
+function refreshVisiblePage() {
+  const pages = ['dashboard','tests','retest','blocked','chronic','devview','onhold','pipeline','apps','config','bulk'];
+  pages.forEach(pg => {
+    if(document.getElementById('page-'+pg)?.classList.contains('active')) navigate(pg);
+  });
 }
 
 async function refreshGitHubSHA() {
@@ -1499,8 +1642,8 @@ async function loadFromGitHub() {
       localStorage.setItem('gh_sha', GH.sha);
       return false;
     }
-    DB = { ...DB, ...p };
-    DB.config = { ...DB.config, ...(p.config||{}) };
+    DB = mergeDB(DB, p);
+    _syncSnapshot = snapshotForSync(DB);
     showSync('saved', '✅ Loaded from GitHub');
     return true;
   } catch(e) {
@@ -2103,7 +2246,7 @@ function saveApp() {
 function confirmDeleteApp(id) {
   const a=DB.applications.find(x=>x.id===id);
   document.getElementById('confirmMsg').textContent=`Delete "${a.name}"? All associated tests will also be deleted.`;
-  document.getElementById('confirmOkBtn').onclick=()=>{DB.applications=DB.applications.filter(x=>x.id!==id);DB.tests=DB.tests.filter(t=>t.appId!==id);save();populateAppSelects();renderApps();closeModal('confirmModal');updateBadges();};
+  document.getElementById('confirmOkBtn').onclick=()=>{const cascadeIds=DB.tests.filter(t=>t.appId===id).map(t=>t.id);markDeleted('applications',id);markDeleted('tests',cascadeIds);DB.applications=DB.applications.filter(x=>x.id!==id);DB.tests=DB.tests.filter(t=>t.appId!==id);save();populateAppSelects();renderApps();closeModal('confirmModal');updateBadges();};
   openModal('confirmModal');
 }
 
@@ -2852,6 +2995,7 @@ function deleteSelectedTests() {
   document.getElementById('confirmMsg').textContent =
     `Delete ${ids.length} selected test${ids.length!==1?'s':''}? This cannot be undone.`;
   document.getElementById('confirmOkBtn').onclick = () => {
+    markDeleted('tests', ids);
     DB.tests = DB.tests.filter(t => !ids.includes(t.id));
     save(); clearSelection(); renderTestTable(); updateBadges();
     if(document.getElementById('page-dashboard').classList.contains('active')) renderDashboard();
@@ -2863,7 +3007,7 @@ function deleteSelectedTests() {
 function confirmDeleteTest(id){
   const t=DB.tests.find(x=>x.id===id);
   document.getElementById('confirmMsg').textContent=`Delete test "${t.id}: ${t.script.substring(0,60)}"?`;
-  document.getElementById('confirmOkBtn').onclick=()=>{DB.tests=DB.tests.filter(x=>x.id!==id);save();clearSelection();renderTestTable();updateBadges();closeModal('confirmModal');};
+  document.getElementById('confirmOkBtn').onclick=()=>{markDeleted('tests',id);DB.tests=DB.tests.filter(x=>x.id!==id);save();clearSelection();renderTestTable();updateBadges();closeModal('confirmModal');};
   openModal('confirmModal');
 }
 
@@ -4402,6 +4546,7 @@ function importBulkData() {
 function clearAllTestData() {
   if(!DB.tests.length) { alert('No test data to clear.'); return; }
   if(!confirm(`Delete ALL ${DB.tests.length} test${DB.tests.length!==1?'s':''}? This cannot be undone.`)) return;
+  markDeleted('tests', DB.tests.map(t=>t.id));
   DB.tests = [];
   save(); populateAppSelects(); populateFilters(); updateBadges(); renderDashboard();
   const rs = document.getElementById('bulkResultSection');
@@ -4416,6 +4561,7 @@ function resetBulkImport() {
   );
   if(!bulkTests.length) { alert('No bulk-imported tests found to remove.'); return; }
   if(!confirm(`Remove ${bulkTests.length} bulk-imported test${bulkTests.length!==1?'s':''}? Manually created tests are untouched.`)) return;
+  markDeleted('tests', bulkTests.map(t=>t.id));
   DB.tests = DB.tests.filter(t =>
     !(t.thread && t.thread.some(e => e.detail && e.detail.includes('Bulk imported')))
   );
@@ -4472,6 +4618,7 @@ async function init() {
   }
 
   seedIfEmpty();
+  if(!_syncSnapshot) _syncSnapshot = snapshotForSync(DB); // fallback baseline if GitHub load didn't set one
 
   // 6. If user was previously logged in, skip the login screen
   const savedUser = localStorage.getItem('iap_user');
