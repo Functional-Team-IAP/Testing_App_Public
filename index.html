@@ -1339,11 +1339,7 @@ async function pollForChanges() {
     const data = await res.json();
     // Only reload if SHA has changed (someone else saved)
     if(data.sha && data.sha !== GH.sha) {
-      const _b64 = data.content.replace(/\n/g,'');
-    const _bin = atob(_b64);
-    const _bytes = new Uint8Array(_bin.length);
-    for(let i=0;i<_bin.length;i++) _bytes[i]=_bin.charCodeAt(i);
-    const raw = new TextDecoder().decode(_bytes);
+      const raw = await decodeGitHubContent(data);
       let p;
       try { p = JSON.parse(raw); } catch(e) {
         showSync('error', '⚠ GitHub file is corrupted — using local data. Click ⚙ Sync → Repair to fix.');
@@ -1498,11 +1494,7 @@ async function pushToGitHub(_attempt) {
     if(getRes.ok) {
       const data = await getRes.json();
       remoteSha = data.sha;
-      const _b64 = data.content.replace(/\n/g,'');
-      const _bin = atob(_b64);
-      const _bytes = new Uint8Array(_bin.length);
-      for(let i=0;i<_bin.length;i++) _bytes[i]=_bin.charCodeAt(i);
-      const raw = new TextDecoder().decode(_bytes);
+      const raw = await decodeGitHubContent(data);
       try { remoteDB = JSON.parse(raw); }
       catch(parseErr) { remoteDB = null; } // remote corrupt — fall back to pushing local as-is below
     } else if(getRes.status !== 404) {
@@ -1578,6 +1570,27 @@ function refreshVisiblePage() {
   });
 }
 
+// GitHub's Contents API only inlines base64 content for files up to ~1MB.
+// Above that, `content` comes back empty/missing — which would otherwise look
+// exactly like a corrupted file every single time. This falls back to a raw
+// fetch (which has no such size cap) whenever that happens.
+async function decodeGitHubContent(data) {
+  if(data.content) {
+    const _b64 = data.content.replace(/\n/g,'');
+    const _bin = atob(_b64);
+    const _bytes = new Uint8Array(_bin.length);
+    for(let i=0;i<_bin.length;i++) _bytes[i]=_bin.charCodeAt(i);
+    return new TextDecoder().decode(_bytes);
+  }
+  // Large file — Contents API omitted inline content. Fetch it directly instead.
+  const url = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH_FILE}?t=${Date.now()}`;
+  const res = await fetch(url, {
+    headers: { 'Authorization': `token ${GH.token}`, 'Accept': 'application/vnd.github.raw' }
+  });
+  if(!res.ok) throw new Error(`GitHub ${res.status} (raw fetch)`);
+  return await res.text();
+}
+
 async function refreshGitHubSHA() {
   try {
     const url = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH_FILE}`;
@@ -1597,11 +1610,7 @@ async function verifyGitHubJSON() {
     const res = await fetch(url, { headers: { 'Authorization': `token ${GH.token}` } });
     if(!res.ok) return false;
     const data = await res.json();
-    const _b64 = data.content.replace(/\n/g,'');
-    const _bin = atob(_b64);
-    const _bytes = new Uint8Array(_bin.length);
-    for(let i=0;i<_bin.length;i++) _bytes[i]=_bin.charCodeAt(i);
-    const raw = new TextDecoder().decode(_bytes);
+    const raw = await decodeGitHubContent(data);
     JSON.parse(raw); // throws if still invalid
     GH.sha = data.sha;
     localStorage.setItem('gh_sha', GH.sha);
@@ -1627,11 +1636,7 @@ async function loadFromGitHub() {
     const data = await res.json();
     GH.sha = data.sha;
     localStorage.setItem('gh_sha', GH.sha);
-    const _b64 = data.content.replace(/\n/g,'');
-    const _bin = atob(_b64);
-    const _bytes = new Uint8Array(_bin.length);
-    for(let i=0;i<_bin.length;i++) _bytes[i]=_bin.charCodeAt(i);
-    const raw = new TextDecoder().decode(_bytes);
+    const raw = await decodeGitHubContent(data);
     let p;
     try {
       p = JSON.parse(raw);
