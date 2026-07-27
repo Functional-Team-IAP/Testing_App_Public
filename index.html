@@ -699,14 +699,19 @@ textarea.form-control{resize:none;min-height:72px;overflow-y:hidden;}
           style="padding:9px 24px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text3);border-bottom:3px solid transparent;margin-bottom:-2px;font-family:var(--font);">
           🚀 Ready for Deployment <span id="devTabDeployCount" style="background:var(--green-dim);color:var(--green);border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;"></span>
         </button>
+        <button id="devTab-unassigned" onclick="switchDevTab('unassigned')"
+          style="padding:9px 24px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text3);border-bottom:3px solid transparent;margin-bottom:-2px;font-family:var(--font);">
+          ❓ Unassigned <span id="devTabUnassignedCount" style="background:var(--purple-dim);color:var(--purple);border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;"></span>
+        </button>
       </div>
 
       <!-- Filter / sort bar -->
       <div class="filter-bar" style="margin-bottom:16px;">
-        <span class="filter-label">Developer:</span>
-        <select id="devViewFilter" onchange="renderDevView()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
-          <option value="">All Developers</option>
-        </select>
+        <span id="devDevFilterWrap" class="filter-label">Developer:
+          <select id="devViewFilter" onchange="renderDevView()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;margin-left:4px;">
+            <option value="">All Developers</option>
+          </select>
+        </span>
         <span class="filter-label" style="margin-left:8px;">Priority:</span>
         <select id="devPriFilter" onchange="renderDevView()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:var(--radius);padding:5px 8px;font-size:12px;">
           <option value="">All Priorities</option>
@@ -1960,6 +1965,26 @@ function isOnHoldDefect(x) {
   return false;
 }
 
+// Returns true if a test has an active defect (main or retest cycle) that
+// needs developer action but currently has NOBODY assigned to it — i.e. it's
+// falling through the cracks and needs someone to pick it up.
+function isUnassignedDefect(x) {
+  const lc = latestCycle(x);
+  if(lc && ['Fail','Failed'].includes(lc.retestStatus)) {
+    if(['Completed','On Hold','Ready for Deployment'].includes(lc.resolveStatus)) return false;
+    const cycleHasDevs = lc.cycleFeDev || lc.cycleBeDev || lc.cycleValDev;
+    if(cycleHasDevs) return false; // cycle has its own assignment
+    return !(x.feDev || x.beDev || x.valDev); // falls back to main assignment
+  }
+  const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
+  if(noCycleActive) {
+    if(!['Fail','Blocked','Pending Development','New Development'].includes(x.status)) return false;
+    if(['Completed','Not Applicable','On Hold','Ready for Deployment'].includes(x.resolveStatus)) return false;
+    return !(x.feDev || x.beDev || x.valDev);
+  }
+  return false;
+}
+
 // ─── BADGES ───────────────────────────────────────────────────
 function updateBadges() {
   // Badges always reflect ALL tests — each page has its own local filter
@@ -1977,7 +2002,8 @@ function updateBadges() {
   const activeDefects = t.filter(isOpenDevDefect).length;
   const onHoldDefects  = t.filter(isOnHoldDefect).length;
   const deployDefects  = t.filter(isReadyForDeployment).length;
-  setBadge('myDefectsBadge', activeDefects + onHoldDefects + deployDefects);
+  const unassignedDefects = t.filter(isUnassignedDefect).length;
+  setBadge('myDefectsBadge', activeDefects + onHoldDefects + deployDefects + unassignedDefects);
 }
 function setBadge(id,n) {
   const el=document.getElementById(id);
@@ -3473,7 +3499,7 @@ function renderDeployTab(el) {
     </div>`;
   }).join('');
   el.innerHTML = html.trim()||`<div class="empty-state"><div class="empty-icon">🚀</div><p>No fixes are ready for deployment yet.</p></div>`;
-  setBadge('myDefectsBadge', roundTests().filter(isOpenDevDefect).length + roundTests().filter(isOnHoldDefect).length + roundTests().filter(isReadyForDeployment).length);
+  setBadge('myDefectsBadge', roundTests().filter(isOpenDevDefect).length + roundTests().filter(isOnHoldDefect).length + roundTests().filter(isReadyForDeployment).length + roundTests().filter(isUnassignedDefect).length);
 }
 
 // ─── DEVELOPER VIEW ───────────────────────────────────────────
@@ -3483,9 +3509,10 @@ let devActiveTab = 'active'; // 'active' | 'onhold'
 function switchDevTab(tab) {
   devActiveTab = tab;
   const tabs = {
-    'active': { el:'devTab-active', color:'var(--accent)' },
-    'onhold': { el:'devTab-onhold', color:'var(--yellow)' },
-    'deploy': { el:'devTab-deploy', color:'var(--green)'  },
+    'active':     { el:'devTab-active',     color:'var(--accent)' },
+    'onhold':     { el:'devTab-onhold',     color:'var(--yellow)' },
+    'deploy':     { el:'devTab-deploy',     color:'var(--green)'  },
+    'unassigned': { el:'devTab-unassigned', color:'var(--purple)' },
   };
   Object.entries(tabs).forEach(([key,{el,color}]) => {
     const btn = document.getElementById(el);
@@ -3495,7 +3522,9 @@ function switchDevTab(tab) {
     }
   });
   const statusWrap = document.getElementById('devStatusFilterWrap');
-  if(statusWrap) statusWrap.style.display = tab==='active' ? '' : 'none';
+  if(statusWrap) statusWrap.style.display = ['active','unassigned'].includes(tab) ? '' : 'none';
+  const devFilterWrap = document.getElementById('devDevFilterWrap');
+  if(devFilterWrap) devFilterWrap.style.display = tab==='unassigned' ? 'none' : '';
   renderDevView();
 }
 
@@ -3522,20 +3551,24 @@ function renderDevView() {
   }
 
   // Update tab counts
-  const allActive = roundTests().filter(isOpenDevDefect).length;
-  const allOnHold = roundTests().filter(isOnHoldDefect).length;
-  const allDeploy = roundTests().filter(isReadyForDeployment).length;
-  const cntActive = document.getElementById('devTabActiveCount');
-  const cntOnHold = document.getElementById('devTabOnHoldCount');
-  const cntDeploy = document.getElementById('devTabDeployCount');
-  if(cntActive) cntActive.textContent = allActive || '';
-  if(cntOnHold) cntOnHold.textContent = allOnHold || '';
-  if(cntDeploy) cntDeploy.textContent = allDeploy || '';
-  setBadge('myDefectsBadge', allActive + allOnHold + allDeploy);
+  const allActive     = roundTests().filter(isOpenDevDefect).length;
+  const allOnHold     = roundTests().filter(isOnHoldDefect).length;
+  const allDeploy     = roundTests().filter(isReadyForDeployment).length;
+  const allUnassigned = roundTests().filter(isUnassignedDefect).length;
+  const cntActive     = document.getElementById('devTabActiveCount');
+  const cntOnHold     = document.getElementById('devTabOnHoldCount');
+  const cntDeploy     = document.getElementById('devTabDeployCount');
+  const cntUnassigned = document.getElementById('devTabUnassignedCount');
+  if(cntActive)     cntActive.textContent     = allActive || '';
+  if(cntOnHold)     cntOnHold.textContent     = allOnHold || '';
+  if(cntDeploy)     cntDeploy.textContent     = allDeploy || '';
+  if(cntUnassigned) cntUnassigned.textContent = allUnassigned || '';
+  setBadge('myDefectsBadge', allActive + allOnHold + allDeploy + allUnassigned);
 
   // Branch by active tab
-  if(devActiveTab === 'onhold')  { renderOnHoldTab(el); return; }
-  if(devActiveTab === 'deploy')  { renderDeployTab(el); return; }
+  if(devActiveTab === 'onhold')      { renderOnHoldTab(el); return; }
+  if(devActiveTab === 'deploy')      { renderDeployTab(el); return; }
+  if(devActiveTab === 'unassigned')  { renderUnassignedTab(el); return; }
 
   const filterDev    = document.getElementById('devViewFilter')?.value   || '';
   const filterPri    = document.getElementById('devPriFilter')?.value    || '';
@@ -3727,7 +3760,7 @@ function renderDevView() {
   el.innerHTML = html.trim() || `<div class="empty-state"><div class="empty-icon">🎉</div><p>No open defects match the current filters.</p></div>`;
 
   // Badge uses shared function so it always matches updateBadges()
-  setBadge('myDefectsBadge', roundTests().filter(isOpenDevDefect).length + roundTests().filter(isOnHoldDefect).length);
+  setBadge('myDefectsBadge', roundTests().filter(isOpenDevDefect).length + roundTests().filter(isOnHoldDefect).length + roundTests().filter(isUnassignedDefect).length);
 }
 
 function renderOnHoldTab(el) {
@@ -3827,7 +3860,91 @@ function renderOnHoldTab(el) {
   }).join('');
 
   el.innerHTML = html.trim() || `<div class="empty-state"><div class="empty-icon">⏸️</div><p>No defects are currently on hold.</p></div>`;
-  setBadge('myDefectsBadge', roundTests().filter(isOpenDevDefect).length + roundTests().filter(isOnHoldDefect).length);
+  setBadge('myDefectsBadge', roundTests().filter(isOpenDevDefect).length + roundTests().filter(isOnHoldDefect).length + roundTests().filter(isUnassignedDefect).length);
+}
+
+// ─── UNASSIGNED DEFECTS TAB ────────────────────────────────────
+// Flat list (no per-developer grouping, since by definition nobody's
+// assigned yet) so it's obvious at a glance what still needs an owner.
+function renderUnassignedTab(el) {
+  const filterPri    = document.getElementById('devPriFilter')?.value    || '';
+  const filterStatus = document.getElementById('devStatusFilter')?.value || '';
+  const filterIssue  = document.getElementById('devIssueFilter')?.value  || '';
+  const sortBy       = document.getElementById('devSortBy')?.value       || 'priority';
+  const priOrder     = {'High':0,'Medium':1,'Low':2,'':3};
+
+  const summaryBar = document.getElementById('devSummaryBar');
+  if(summaryBar) summaryBar.innerHTML = '';
+
+  if(!roundTests().length) { el.innerHTML=`<div class="empty-state"><div class="empty-icon">❓</div><p>No tests in this round yet.</p></div>`; return; }
+
+  const items = [];
+  roundTests().forEach(t => {
+    if(!isUnassignedDefect(t)) return;
+    const lc = latestCycle(t);
+    const cycleNeedsWork = lc && ['Fail','Failed'].includes(lc.retestStatus)
+      && !['Completed','On Hold','Ready for Deployment'].includes(lc.resolveStatus);
+    const pri          = (cycleNeedsWork ? lc?.retestPriority : t.priority) || '';
+    const resolveDisplay = cycleNeedsWork ? (lc?.resolveStatus||'') : (t.resolveStatus||'');
+    const issueType     = cycleNeedsWork ? 'retest' : 'main';
+    if(filterPri    && pri !== filterPri) return;
+    if(filterStatus && t.status !== filterStatus) return;
+    if(filterIssue  && issueType !== filterIssue) return;
+    items.push({ test:t, lc, cycleNeedsWork, pri, resolveDisplay, issueType });
+  });
+
+  items.sort((a,b) => {
+    if(sortBy==='priority') return (priOrder[a.pri]??3)-(priOrder[b.pri]??3);
+    if(sortBy==='id')       return a.test.id.localeCompare(b.test.id);
+    if(sortBy==='status')   return a.test.status.localeCompare(b.test.status);
+    if(sortBy==='resolve')  return a.resolveDisplay.localeCompare(b.resolveDisplay);
+    if(sortBy==='app')      return (a.test.appId||'').localeCompare(b.test.appId||'');
+    return 0;
+  });
+
+  if(!items.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div><p>Nothing unassigned — every open defect has a developer.</p></div>`;
+    setBadge('myDefectsBadge', roundTests().filter(isOpenDevDefect).length + roundTests().filter(isOnHoldDefect).length + roundTests().filter(isReadyForDeployment).length + roundTests().filter(isUnassignedDefect).length);
+    return;
+  }
+
+  const highCount = items.filter(i=>i.pri==='High').length;
+  const medCount  = items.filter(i=>i.pri==='Medium').length;
+  const lowCount  = items.filter(i=>i.pri==='Low').length;
+
+  el.innerHTML = `<div class="card" style="border-left:3px solid var(--purple);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+      <div style="font-size:14px;color:var(--text2);">❓ These defects need someone assigned before work can start</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        ${highCount?`<span class="badge badge-high">🔴 ${highCount} High</span>`:''}
+        ${medCount?`<span class="badge badge-medium">🟡 ${medCount} Medium</span>`:''}
+        ${lowCount?`<span class="badge badge-low">🟢 ${lowCount} Low</span>`:''}
+        <span class="badge" style="background:var(--purple-dim);color:var(--purple);font-size:12px;padding:3px 10px;">${items.length} unassigned</span>
+      </div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Test ID</th><th>Application</th><th>Section</th><th>Test Script</th><th>Status</th><th>Issue Type</th><th>Priority</th><th>Tester Notes</th><th>Action</th></tr></thead>
+      <tbody>${items.map(({test:t,lc,cycleNeedsWork,pri,issueType})=>{
+        const app = DB.applications.find(a=>a.id===t.appId);
+        const issueLbl = cycleNeedsWork
+          ? `<span class="badge badge-pendingdev">Retest Cycle ${lc.cycleNum} Fail</span>`
+          : `<span class="badge badge-fail">Initial Defect</span>`;
+        const note = cycleNeedsWork ? (lc?.remarks||'—') : (t.remarks||'—');
+        return `<tr style="background:var(--purple-dim);">
+          <td class="td-mono">${t.id}</td>
+          <td style="font-size:11px;">${app?.name||t.appId}</td>
+          <td style="font-size:11px;">${t.section||'—'}</td>
+          <td class="td-truncate" style="max-width:150px;" title="${escHtml(t.script)}">${escHtml(t.script)}</td>
+          <td>${statusBadge(t.status)}</td>
+          <td>${issueLbl}</td>
+          <td>${pri?priorityBadge(pri):'—'}</td>
+          <td class="td-truncate" style="max-width:160px;font-size:11px;" title="${escHtml(note)}">${escHtml(note)}</td>
+          <td><button class="btn-icon" onclick="openEditModal('${t.id}');switchTestTab('dev',null)" title="Assign a developer">👤 Assign</button></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>
+  </div>`;
+  setBadge('myDefectsBadge', roundTests().filter(isOpenDevDefect).length + roundTests().filter(isOnHoldDefect).length + roundTests().filter(isReadyForDeployment).length + roundTests().filter(isUnassignedDefect).length);
 }
 
 // ─── DASHBOARD ─────────────────────────────────────────────────
