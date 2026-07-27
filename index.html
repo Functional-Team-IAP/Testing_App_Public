@@ -2199,8 +2199,8 @@ function saveModule() {
   const data={id:document.getElementById('fm_id').value,name,desc:document.getElementById('fm_desc').value,owner:document.getElementById('fm_owner').value,active:document.getElementById('fm_active').value==='true',testTypes:[...workingModuleTestTypes],created:today()};
   if(currentModuleEditId){
     const i=DB.modules.findIndex(m=>m.id===currentModuleEditId);
-    data.created=DB.modules[i].created;
-    DB.modules[i]=data;
+    if(i>=0) { data.created=DB.modules[i].created; DB.modules[i]=data; }
+    else DB.modules.push(data);
   } else {
     DB.modules.push(data);
   }
@@ -2281,8 +2281,8 @@ function saveApp() {
   const data={id:document.getElementById('fa_id').value,name,moduleId,desc:document.getElementById('fa_desc').value,owner:document.getElementById('fa_owner').value,active:document.getElementById('fa_active').value==='true',sections:[...workingAppSections],created:today()};
   if(currentAppEditId){
     const i=DB.applications.findIndex(a=>a.id===currentAppEditId);
-    data.created=DB.applications[i].created;
-    DB.applications[i]=data;
+    if(i>=0) { data.created=DB.applications[i].created; DB.applications[i]=data; }
+    else DB.applications.push(data);
   } else {
     DB.applications.push(data);
   }
@@ -2989,13 +2989,25 @@ function saveTest() {
   };
 
   if(currentEditId){
-    const i=DB.tests.findIndex(t=>t.id===currentEditId);DB.tests[i]=data;
+    const i=DB.tests.findIndex(t=>t.id===currentEditId);
+    if(i>=0) DB.tests[i]=data;
+    else DB.tests.push(data); // safety net — never silently drop an edit if the array shifted underneath us
   } else {
     DB.tests.push(data);
   }
 
+  const wasUnassigned = oldTest ? isUnassignedDefect(oldTest) : false;
+
   save();closeModal('testModal');renderTestTable();updateBadges();
   if(document.getElementById('page-dashboard').classList.contains('active'))renderDashboard();
+  if(document.getElementById('page-devview').classList.contains('active')) renderDevView();
+
+  // If this test just got its first developer assigned, it moves out of the
+  // Unassigned tab into Active Defects — make that visible instead of the
+  // test just silently disappearing from whatever list you were looking at.
+  if(wasUnassigned && !isUnassignedDefect(data) && (data.feDev||data.beDev||data.valDev)) {
+    showSync('saved', `✅ ${data.id} assigned — moved to Active Defects`);
+  }
 }
 
 // ─── BULK SELECT / DELETE ─────────────────────────────────────
