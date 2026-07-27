@@ -4210,8 +4210,23 @@ function onBulkFileSelect() {
   document.getElementById('bulkDelimiter').value =
     (file.name.endsWith('.tsv') || file.name.endsWith('.txt')) ? 'tab' : 'comma';
   const reader = new FileReader();
-  reader.onload = e => { document.getElementById('bulkPasteArea').value = e.target.result; };
-  reader.readAsText(file);
+  reader.onload = e => { document.getElementById('bulkPasteArea').value = decodeUploadedFile(e.target.result); };
+  reader.readAsArrayBuffer(file);
+}
+
+// Excel's plain "CSV" save (as opposed to "CSV UTF-8") writes bullets (•),
+// em dashes (—), and curly quotes using the older Windows-1252 encoding, not
+// UTF-8. Reading those bytes as UTF-8 corrupts them into "�". Try UTF-8
+// first; if it contains replacement characters (a sign the bytes weren't
+// valid UTF-8), re-decode as Windows-1252 instead.
+function decodeUploadedFile(buf) {
+  const bytes = new Uint8Array(buf);
+  const hasBOM = bytes.length >= 3 && bytes[0]===0xEF && bytes[1]===0xBB && bytes[2]===0xBF;
+  const src = hasBOM ? bytes.subarray(3) : bytes;
+  const asUtf8 = new TextDecoder('utf-8').decode(src);
+  if(!asUtf8.includes('\uFFFD')) return asUtf8;
+  try { return new TextDecoder('windows-1252').decode(src); }
+  catch(e) { return asUtf8; }
 }
 
 // ── Normalise any common date format → yyyy-mm-dd ─────────────────
