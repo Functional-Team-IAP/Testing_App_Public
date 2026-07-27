@@ -2996,6 +2996,7 @@ function saveTest() {
   const data={
     id:document.getElementById('f_id').value,
     appId,
+    roundId:oldTest?.roundId ?? (currentRoundId || null),
     testType:document.getElementById('f_testType').value,
     claimType:document.getElementById('f_claimType')?.value||'',
     section:document.getElementById('f_section').value,
@@ -4821,27 +4822,30 @@ function importBulkData() {
 
 // ── Undo: remove all bulk-imported tests ──────────────────────────
 function clearAllTestData() {
-  if(!DB.tests.length) { alert('No test data to clear.'); return; }
-  if(!confirm(`Delete ALL ${DB.tests.length} test${DB.tests.length!==1?'s':''}? This cannot be undone.`)) return;
-  markDeleted('tests', DB.tests.map(t=>t.id));
-  DB.tests = [];
+  const scoped = roundTests(); // only tests in the currently active round
+  if(!scoped.length) { alert('No test data in the current round to clear.'); return; }
+  const roundName = DB.rounds.find(r => r.id === currentRoundId)?.name || 'this round';
+  if(!confirm(`Delete all ${scoped.length} test${scoped.length!==1?'s':''} in ${roundName}? Other rounds are NOT affected. This cannot be undone.`)) return;
+  const idsToDelete = scoped.map(t => t.id);
+  markDeleted('tests', idsToDelete);
+  DB.tests = DB.tests.filter(t => !idsToDelete.includes(t.id));
   save(); populateAppSelects(); populateFilters(); updateBadges(); renderDashboard();
   const rs = document.getElementById('bulkResultSection');
   if(rs) rs.style.display = 'block';
   document.getElementById('bulkResultMsg').innerHTML =
-    `<div class="alert alert-success">🗑 All test data cleared. You can now upload fresh data.</div>`;
+    `<div class="alert alert-success">🗑 Cleared ${idsToDelete.length} test${idsToDelete.length!==1?'s':''} from ${roundName}. Other rounds are untouched. You can now upload fresh data.</div>`;
 }
 
 function resetBulkImport() {
-  const bulkTests = DB.tests.filter(t =>
+  const roundName = DB.rounds.find(r => r.id === currentRoundId)?.name || 'this round';
+  const bulkTests = roundTests().filter(t =>
     t.thread && t.thread.some(e => e.detail && e.detail.includes('Bulk imported'))
   );
-  if(!bulkTests.length) { alert('No bulk-imported tests found to remove.'); return; }
-  if(!confirm(`Remove ${bulkTests.length} bulk-imported test${bulkTests.length!==1?'s':''}? Manually created tests are untouched.`)) return;
-  markDeleted('tests', bulkTests.map(t=>t.id));
-  DB.tests = DB.tests.filter(t =>
-    !(t.thread && t.thread.some(e => e.detail && e.detail.includes('Bulk imported')))
-  );
+  if(!bulkTests.length) { alert(`No bulk-imported tests found in ${roundName}.`); return; }
+  if(!confirm(`Remove ${bulkTests.length} bulk-imported test${bulkTests.length!==1?'s':''} from ${roundName}? Manually created tests and other rounds are untouched.`)) return;
+  const idsToDelete = bulkTests.map(t=>t.id);
+  markDeleted('tests', idsToDelete);
+  DB.tests = DB.tests.filter(t => !idsToDelete.includes(t.id));
   save(); populateAppSelects(); populateFilters(); updateBadges();
   document.getElementById('bulkResultMsg').innerHTML =
     `<div class="alert alert-success">🗑 Removed ${bulkTests.length} bulk-imported test${bulkTests.length!==1?'s':''}. Your other data is untouched.</div>`;
