@@ -1426,6 +1426,13 @@ function mergeTombstones(a, b) {
 // Union-by-id merge of one collection (tests, applications, etc). Newer
 // _updatedAt wins on conflicts; records only present on one side are kept;
 // tombstoned ids are dropped unless a side has a genuinely newer edit.
+// A record touched this recently can never be purged by a tombstone — this
+// is a hard safety net against any timing/ordering edge case (clock skew,
+// a stale tombstone lingering from an earlier session, a merge racing with
+// an in-flight edit, etc). Losing a fresh edit is far worse than occasionally
+// failing to fully honor an old delete.
+const TOMBSTONE_GRACE_MS = 5 * 60 * 1000; // 5 minutes
+
 function mergeCollection(localArr, remoteArr, tombstones) {
   const map = new Map();
   (remoteArr||[]).forEach(r => map.set(r.id, r));
@@ -1438,7 +1445,13 @@ function mergeCollection(localArr, remoteArr, tombstones) {
   if(tombstones) {
     Object.entries(tombstones).forEach(([id, delTs]) => {
       const rec = map.get(id);
-      if(rec && delTs >= (rec._updatedAt||0)) map.delete(id);
+      if(!rec) return;
+      const recTs = rec._updatedAt||0;
+      if(delTs >= recTs && (Date.now() - recTs) > TOMBSTONE_GRACE_MS) {
+        map.delete(id);
+      } else if(delTs >= recTs) {
+        console.warn(`[merge] Kept record "${id}" despite an older tombstone (${delTs}) because it was edited too recently (${recTs}) to safely purge — grace period active.`);
+      }
     });
   }
   return Array.from(map.values());
@@ -1487,7 +1500,19 @@ function mergeDB(localDB, remoteDB) {
   };
 }
 
+// Warn before leaving if a save is still pending/in-flight — with several
+// testers sharing this file, a sync can take a beat longer under contention,
+// and closing the tab mid-sync could leave an edit stuck unsynced.
+window.addEventListener('beforeunload', (e) => {
+  if(_isSaving || _pendingSave) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
 // ─── PERSISTENCE — GitHub API ──────────────────────────────────
+let _pendingSave = false; // true only while a debounced save hasn't fired yet
+
 function save() {
   // Mark which records this tab has actually touched since the last sync
   stampDirtyRecords();
@@ -1495,7 +1520,8 @@ function save() {
   localStorage.setItem('iap_testing_db', JSON.stringify(DB));
   // Debounce GitHub saves — wait 1.5s of inactivity before pushing
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(pushToGitHub, 1500);
+  _pendingSave = true;
+  saveTimer = setTimeout(() => { _pendingSave = false; pushToGitHub(); }, 1500);
 }
 
 async function pushToGitHub(_attempt) {
@@ -1550,8 +1576,11 @@ async function pushToGitHub(_attempt) {
     if(!res.ok) {
       // Someone saved again in the brief window between our fetch and our write.
       // Re-fetch + re-merge + retry, rather than blindly overwriting their save.
-      if((res.status === 409 || res.status === 422) && attempt < 5) {
+      // With several testers sharing this same file, brief conflicts are
+      // expected — retry generously with a bit of jitter before giving up.
+      if((res.status === 409 || res.status === 422) && attempt < 10) {
         _isSaving = false;
+        await new Promise(r => setTimeout(r, 200 + Math.random()*400));
         return pushToGitHub(attempt + 1);
       }
       throw new Error(`GitHub ${res.status}`);
@@ -1575,8 +1604,14 @@ async function pushToGitHub(_attempt) {
                  msg.includes('403') ? 'Token lacks write permission' :
                  msg.includes('404') ? 'Repo not found' :
                  msg.includes('Failed to fetch') ? 'Network error' : msg;
-    showSync('error', `⚠ Save failed: ${hint}`);
+    showSync('error', `⚠ Save failed (${hint}) — your edit is safe locally, retrying…`);
     console.error('GitHub push error:', e);
+    // Don't just give up — your edit is still safely in memory/localStorage,
+    // but GitHub hasn't seen it yet. Keep trying in the background rather
+    // than silently leaving it stuck unsynced.
+    clearTimeout(saveTimer);
+    _pendingSave = true;
+    saveTimer = setTimeout(() => { _pendingSave = false; pushToGitHub(); }, 4000);
   }
 }
 
