@@ -1425,14 +1425,9 @@ function mergeTombstones(a, b) {
 
 // Union-by-id merge of one collection (tests, applications, etc). Newer
 // _updatedAt wins on conflicts; records only present on one side are kept;
-// tombstoned ids are dropped unless a side has a genuinely newer edit.
-// A record touched this recently can never be purged by a tombstone — this
-// is a hard safety net against any timing/ordering edge case (clock skew,
-// a stale tombstone lingering from an earlier session, a merge racing with
-// an in-flight edit, etc). Losing a fresh edit is far worse than occasionally
-// failing to fully honor an old delete.
-const TOMBSTONE_GRACE_MS = 5 * 60 * 1000; // 5 minutes
-
+// tombstoned ids are dropped whenever the deletion happened at or after the
+// record's last known edit — this correctly handles both "delete an old,
+// untouched record" and "edit something, then delete it a moment later".
 function mergeCollection(localArr, remoteArr, tombstones) {
   const map = new Map();
   (remoteArr||[]).forEach(r => map.set(r.id, r));
@@ -1445,13 +1440,7 @@ function mergeCollection(localArr, remoteArr, tombstones) {
   if(tombstones) {
     Object.entries(tombstones).forEach(([id, delTs]) => {
       const rec = map.get(id);
-      if(!rec) return;
-      const recTs = rec._updatedAt||0;
-      if(delTs >= recTs && (Date.now() - recTs) > TOMBSTONE_GRACE_MS) {
-        map.delete(id);
-      } else if(delTs >= recTs) {
-        console.warn(`[merge] Kept record "${id}" despite an older tombstone (${delTs}) because it was edited too recently (${recTs}) to safely purge — grace period active.`);
-      }
+      if(rec && delTs >= (rec._updatedAt||0)) map.delete(id);
     });
   }
   return Array.from(map.values());
