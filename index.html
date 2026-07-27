@@ -4106,13 +4106,69 @@ function exportCSV(){
 // 24 Retest Resolved Date | 25 Retest Resolve Status
 
 const BULK_COL_HEADERS = [
-  'Application Name','Module','Test Type','Claim Type','Connecting System','Section','Test Script','Expected Result','Actual Result',
+  'Application Name','Test Type','Claim Type','Connecting System','Section','Test Script','Expected Result','Actual Result',
   'Status','Complexity','Priority','Start Date','Tester Remarks / Notes','Attachment / Screenshot Link',
   'Test Execution Date','Tester Name','Front End Developer','Back End Developer',
   'Validation Developer','Developer Notes','Resolved Date','Resolve Status',
   'Retest Date','Retest Status','Retest Priority','Retest Remarks / Notes',
   'Restest Resolved Date','Retest Resolve Status'
 ];
+
+// Maps each internal field to the header text(s) that may identify its column
+// in an uploaded file. Import reads columns BY NAME (not fixed position) so
+// it still works if a column is missing, reordered, or optional (e.g. no
+// separate Module column, which your actual template doesn't have).
+const BULK_FIELD_ALIASES = {
+  appName:             ['Application Name'],
+  moduleName:          ['Module', 'Module Name'],
+  testType:            ['Test Type'],
+  claimType:           ['Claim Type'],
+  connectingSystem:    ['Connecting System', 'Connecting Application'],
+  section:             ['Section'],
+  script:              ['Test Script'],
+  expected:            ['Expected Result'],
+  actual:              ['Actual Result'],
+  status:              ['Status'],
+  complexity:          ['Complexity'],
+  priority:            ['Priority'],
+  startDate:           ['Start Date'],
+  remarks:             ['Tester Remarks / Notes', 'Tester Remarks', 'Remarks'],
+  attachment:          ['Attachment / Screenshot Link', 'Attachment'],
+  execDate:            ['Test Execution Date', 'Execution Date'],
+  tester:              ['Tester Name'],
+  feDev:               ['Front End Developer'],
+  beDev:               ['Back End Developer'],
+  valDev:              ['Validation Developer'],
+  devNotes:            ['Developer Notes'],
+  resolvedDate:        ['Resolved Date'],
+  resolveStatus:       ['Resolve Status'],
+  retestDate:          ['Retest Date'],
+  retestStatus:        ['Retest Status'],
+  retestPriority:      ['Retest Priority'],
+  retestRemarks:       ['Retest Remarks / Notes', 'Retest Remarks'],
+  retestResolvedDate:  ['Retest Resolved Date', 'Restest Resolved Date'],
+  retestResolveStatus: ['Retest Resolve Status']
+};
+
+// Fallback column order used ONLY when the file has no header row (so names
+// can't be matched) — reflects the actual established format, no Module column.
+const LEGACY_FIXED_COL_MAP = {
+  appName:0, moduleName:-1, testType:1, claimType:2, connectingSystem:3,
+  section:4, script:5, expected:6, actual:7, status:8, complexity:9,
+  priority:10, startDate:11, remarks:12, attachment:13, execDate:14,
+  tester:15, feDev:16, beDev:17, valDev:18, devNotes:19,
+  resolvedDate:20, resolveStatus:21, retestDate:22, retestStatus:23,
+  retestPriority:24, retestRemarks:25, retestResolvedDate:26, retestResolveStatus:27
+};
+
+function buildColumnMap(headerLine, sep) {
+  const headers = parseBulkLine(headerLine, sep).map(h => h.trim().toLowerCase());
+  const map = {};
+  Object.entries(BULK_FIELD_ALIASES).forEach(([field, aliases]) => {
+    map[field] = headers.findIndex(h => aliases.some(a => a.toLowerCase() === h));
+  });
+  return map;
+}
 
 let parsedBulkRows = [];
 
@@ -4126,7 +4182,7 @@ function downloadTemplate() {
   const header = BULK_COL_HEADERS.map(q).join(',');
   const modEx2  = modEx?.name || 'Claims Management';
   const example = [
-    appEx, modEx2, ttEx, 'ZDR1', 'All', secEx,
+    appEx, ttEx, 'ZDR1', 'All', secEx,
     'User creates a claim with valid reference number',
     'Claim is saved and reference linked','Claim saved successfully',
     'Pass','Medium','High','2024-05-01',
@@ -4291,30 +4347,42 @@ function parseBulkData() {
 
   if(!dataLines.length) { alert('No data rows found.'); return; }
 
+  // Map columns by their header name so import works regardless of column
+  // order or missing optional columns (e.g. no separate Module column) —
+  // falls back to the documented fixed order only if there's no header row.
+  const colMap = hasHeader ? buildColumnMap(allRows[0], sep) : LEGACY_FIXED_COL_MAP;
+  if(hasHeader && (colMap.appName < 0 || (colMap.script < 0 && colMap.expected < 0))) {
+    alert('Could not recognize the column headers in this file (expected columns like "Application Name" and "Test Script"). Please check the header row matches the template, or download a fresh template from this page.');
+    return;
+  }
+
   parsedBulkRows = [];
   dataLines.forEach((line, idx) => {
     const rowNum = hasHeader ? idx + 2 : idx + 1;
     const c = parseBulkLine(line, sep);
     // Keep embedded newlines (bullets, multi-line sentences) intact —
     // only trim stray whitespace at the very start/end of the value.
-    const g = i => (c[i] || '').replace(/\r\n/g, '\n').trim();
+    const g = field => {
+      const i = colMap[field];
+      return (i == null || i < 0) ? '' : (c[i] || '').replace(/\r\n/g, '\n').trim();
+    };
     const row = {
       _rowNum: rowNum,
-      appName:             g(0),  moduleName:         g(1),
-      testType:            g(2),  claimType:          g(3),
-      connectingSystem:    g(4),
-      section:             g(5),  script:             g(6),
-      expected:            g(7),  actual:             g(8),
-      status:              g(9),  complexity:         g(10),
-      priority:            g(11), startDate:          parseDate(g(12)),
-      remarks:             g(13), attachment:         g(14),
-      execDate:            parseDate(g(15)), tester:  g(16),
-      feDev:               g(17), beDev:              g(18),
-      valDev:              g(19), devNotes:           g(20),
-      resolvedDate:        parseDate(g(21)), resolveStatus: g(22),
-      retestDate:          parseDate(g(23)), retestStatus:  g(24),
-      retestPriority:      g(25), retestRemarks:      g(26),
-      retestResolvedDate:  parseDate(g(27)), retestResolveStatus: g(28),
+      appName:             g('appName'),  moduleName:         g('moduleName'),
+      testType:            g('testType'), claimType:          g('claimType'),
+      connectingSystem:    g('connectingSystem'),
+      section:             g('section'),  script:             g('script'),
+      expected:            g('expected'), actual:             g('actual'),
+      status:              g('status'),  complexity:          g('complexity'),
+      priority:            g('priority'), startDate:          parseDate(g('startDate')),
+      remarks:             g('remarks'), attachment:          g('attachment'),
+      execDate:            parseDate(g('execDate')), tester:  g('tester'),
+      feDev:               g('feDev'),  beDev:               g('beDev'),
+      valDev:              g('valDev'), devNotes:            g('devNotes'),
+      resolvedDate:        parseDate(g('resolvedDate')), resolveStatus: g('resolveStatus'),
+      retestDate:          parseDate(g('retestDate')), retestStatus:  g('retestStatus'),
+      retestPriority:      g('retestPriority'), retestRemarks:      g('retestRemarks'),
+      retestResolvedDate:  parseDate(g('retestResolvedDate')), retestResolveStatus: g('retestResolveStatus'),
     };
     // Accept rows that have a script OR at least an expected result (script may be in expected for some data formats)
     if(row.script || row.expected) {
