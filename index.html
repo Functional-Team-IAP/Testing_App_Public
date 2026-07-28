@@ -1302,12 +1302,12 @@ async function refreshFromGitHub() {
     populateAppSelects();
     populateFilters();
     updateBadges();
-    renderDashboard();
-    // Re-render whichever page is active
-    const pages = ['tests','retest','blocked','chronic','apps','config'];
-    pages.forEach(p => {
-      if(document.getElementById('page-'+p)?.classList.contains('active')) navigate(p);
-    });
+    // Re-render whichever page is active — use the full page list (same one
+    // the background poll uses) so pages like My Defects / On Hold actually
+    // re-render against the freshly loaded, correctly round-scoped data
+    // instead of silently keeping whatever was on screen before the refresh
+    // (which could be stale rows from a previously viewed round).
+    refreshVisiblePage();
   }
 }
 
@@ -2673,7 +2673,9 @@ function onResolveStatusChange() {
     // Auto-create Retest Cycle 1 with "Ready for Retest" if no cycles exist yet
     if(workingCycles.length === 0) {
       const tester   = document.getElementById('f_tester')?.value || '';
-      workingCycles.push(makeCycle(1, '', tester, 'Not Started', '', '', '', '', ''));
+      const newCycle = makeCycle(1, '', tester, 'Not Started', '', '', '', '', '');
+      newCycle._autoCreated = true; // tag so an accidental "Completed" can be undone cleanly
+      workingCycles.push(newCycle);
       updateCycleTabBadge();
       renderCycleList();
       // Flash the Retest Cycles tab to signal it was updated
@@ -2684,7 +2686,32 @@ function onResolveStatusChange() {
         setTimeout(() => cycleTab.style.color = '', 1500);
       }
     }
+  } else {
+    // Undo path: Resolve Status was just changed AWAY from "Completed" (e.g. it
+    // was set to Completed by mistake). If Cycle 1 was auto-created by that same
+    // toggle and nobody has actually touched it yet, remove it — otherwise the
+    // test gets stuck showing as "in retest" forever instead of falling back to
+    // whichever section its resolve status now correctly belongs in (Active /
+    // On Hold / Ready for Deployment / etc).
+    const last = workingCycles[workingCycles.length - 1];
+    if(workingCycles.length === 1 && last && last._autoCreated && isCycleUntouched(last)) {
+      workingCycles.pop();
+      updateCycleTabBadge();
+      renderCycleList();
+    }
   }
+}
+
+// A cycle is "untouched" if it's still exactly as auto-generated — nobody has
+// logged a retest date, result, remarks, dev notes, dev assignment, or
+// resolve status against it. Safe to silently discard; anything else means
+// real work may have already happened on it, so it's left alone.
+function isCycleUntouched(c) {
+  return (!c.retestStatus || c.retestStatus === 'Not Started')
+    && !c.retestDate && !c.remarks && !c.devNotes && !c.devCycleStart
+    && !c.cycleFeDev && !c.cycleBeDev && !c.cycleValDev
+    && !c.resolveStatus && !c.resolvedDate
+    && (!c.retestPriority || c.retestPriority === 'Medium');
 }
 
 // ─── RETEST CYCLE MANAGEMENT (in-modal) ───────────────────────
@@ -2904,13 +2931,29 @@ function toggleCycleCollapse(bodyId, headerEl) {
 
 function updateCycleField(idx, field, val) {
   if(!workingCycles[idx]) return;
+  const prevVal = workingCycles[idx][field];
   workingCycles[idx][field] = val;
   // When a cycle's resolve status becomes Completed, auto-add the next cycle as "Ready for Retest"
   if(field === 'resolveStatus' && val === 'Completed') {
     const c = workingCycles[idx];
     if(['Fail','Failed'].includes(c.retestStatus) && idx === workingCycles.length - 1) {
       const tester = document.getElementById('f_tester')?.value || c.tester || '';
-      workingCycles.push(makeCycle(workingCycles.length + 1, '', tester, 'Not Started', '', '', '', '', ''));
+      const newCycle = makeCycle(workingCycles.length + 1, '', tester, 'Not Started', '', '', '', '', '');
+      newCycle._autoCreated = true; // tag so an accidental "Completed" can be undone cleanly
+      workingCycles.push(newCycle);
+      renderCycleList();
+    }
+  }
+  // Undo path: this cycle's Resolve Status was just changed AWAY from
+  // "Completed" (marked so by mistake). If the very next cycle was auto-created
+  // off the back of that Completed status and hasn't been touched yet, remove
+  // it — so this cycle (and the test) fall back to being classified under
+  // whichever section its resolve status now correctly belongs in (Active /
+  // On Hold / Ready for Deployment) instead of sitting stuck "in retest".
+  if(field === 'resolveStatus' && prevVal === 'Completed' && val !== 'Completed') {
+    const next = workingCycles[idx + 1];
+    if(next && next._autoCreated && idx === workingCycles.length - 2 && isCycleUntouched(next)) {
+      workingCycles.pop();
       renderCycleList();
     }
   }
@@ -3818,7 +3861,7 @@ function renderOnHoldTab(el) {
 
   const html = devsToShow.map(devName => {
     const defects = [];
-    DB.tests.forEach(t => {
+    roundTests().forEach(t => {
       const lc = latestCycle(t);
       const cycleHasDevs = lc && (lc.cycleFeDev||lc.cycleBeDev||lc.cycleValDev);
       const mainAssigned = t.feDev===devName||t.beDev===devName||t.valDev===devName;
