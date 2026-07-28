@@ -2694,7 +2694,7 @@ function onResolveStatusChange() {
     // whichever section its resolve status now correctly belongs in (Active /
     // On Hold / Ready for Deployment / etc).
     const last = workingCycles[workingCycles.length - 1];
-    if(workingCycles.length === 1 && last && last._autoCreated && isCycleUntouched(last)) {
+    if(workingCycles.length === 1 && last && isCycleUntouched(last)) {
       workingCycles.pop();
       updateCycleTabBadge();
       renderCycleList();
@@ -2952,7 +2952,7 @@ function updateCycleField(idx, field, val) {
   // On Hold / Ready for Deployment) instead of sitting stuck "in retest".
   if(field === 'resolveStatus' && prevVal === 'Completed' && val !== 'Completed') {
     const next = workingCycles[idx + 1];
-    if(next && next._autoCreated && idx === workingCycles.length - 2 && isCycleUntouched(next)) {
+    if(next && idx === workingCycles.length - 2 && isCycleUntouched(next)) {
       workingCycles.pop();
       renderCycleList();
     }
