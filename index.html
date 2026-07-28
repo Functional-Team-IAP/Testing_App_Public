@@ -413,6 +413,10 @@ textarea.form-control{resize:none;min-height:72px;overflow-y:hidden;}
       <span class="nav-icon">🚫</span> Blocked Tests
       <span class="nav-badge" id="blockedBadge" style="display:none">0</span>
     </div>
+    <div class="nav-item" onclick="navigate('newdev')" data-page="newdev">
+      <span class="nav-icon">🧬</span> New Development
+      <span class="nav-badge" id="newDevBadge" style="display:none">0</span>
+    </div>
     <div class="nav-item" onclick="navigate('chronic')" data-page="chronic">
       <span class="nav-icon">🔥</span> Chronic Failures
       <span class="nav-badge orange" id="chronicBadge" style="display:none">0</span>
@@ -551,6 +555,15 @@ textarea.form-control{resize:none;min-height:72px;overflow-y:hidden;}
         <select class="form-control" style="width:180px;" id="blockedAppFilter" onchange="renderBlockedTests()"><option value="all">All Applications</option></select>
       </div>
       <div id="blockedTestsBody"></div>
+    </div>
+
+    <!-- ─── NEW DEVELOPMENT ────────────────────────────────────── -->
+    <div id="page-newdev" class="page">
+      <div class="section-header">
+        <div><div class="section-title">🧬 New Development</div><div class="section-sub">Tests flagged as new development work, separate from retest failures</div></div>
+        <select class="form-control" style="width:180px;" id="newDevAppFilter" onchange="renderNewDevTests()"><option value="all">All Applications</option></select>
+      </div>
+      <div id="newDevBody"></div>
     </div>
 
     <!-- ─── CHRONIC FAILURES ───────────────────────────────────── -->
@@ -1607,7 +1620,7 @@ async function pushToGitHub(_attempt) {
 // Re-renders whichever page is currently on screen — used after a merge
 // pulls in other people's changes so the UI reflects the merged result.
 function refreshVisiblePage() {
-  const pages = ['dashboard','tests','retest','blocked','chronic','devview','onhold','pipeline','apps','config','bulk'];
+  const pages = ['dashboard','tests','retest','blocked','newdev','chronic','devview','onhold','pipeline','apps','config','bulk'];
   pages.forEach(pg => {
     if(document.getElementById('page-'+pg)?.classList.contains('active')) navigate(pg);
   });
@@ -1817,7 +1830,7 @@ function isChronic(t)  { return cycleCount(t)>=3; }
 // ─── NAVIGATION ───────────────────────────────────────────────
 const PAGE_LABELS = {
   dashboard:'Dashboard',apps:'Applications',tests:'Test Tracker',devview:'My Defects',
-  retest:'Retest Queue',blocked:'Blocked Tests',chronic:'Chronic Failures',
+  retest:'Retest Queue',blocked:'Blocked Tests',chronic:'Chronic Failures',newdev:'New Development',
   pipeline:'Pipeline', bulk:'Bulk Upload',config:'Configuration'
 };
 
@@ -1832,6 +1845,7 @@ function navigate(page) {
   if(page==='tests')     { populateFilters(); renderTestTable(); }
   if(page==='retest')    renderRetestQueue();
   if(page==='blocked')   renderBlockedTests();
+  if(page==='newdev')    renderNewDevTests();
   if(page==='chronic')   renderChronicFailures();
   if(page==='bulk')      { /* bulk page is self-contained */ }
   if(page==='config')    renderConfig();
@@ -1888,7 +1902,7 @@ function populateAppSelects() {
     groupedOpts += `<optgroup label="No Module">` + orphans.map(a=>`<option value="${a.id}">${a.name}</option>`).join('') + '</optgroup>';
   }
 
-  ['dashAppFilter','retestAppFilter','blockedAppFilter','chronicAppFilter'].forEach(id=>{
+  ['dashAppFilter','retestAppFilter','blockedAppFilter','newDevAppFilter','chronicAppFilter'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.innerHTML=allOpt+groupedOpts;
   });
 
@@ -1954,7 +1968,7 @@ function isOpenDevDefect(x) {
   // Main test fail/blocked — only if no active unresolved cycle
   const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
   if(noCycleActive) {
-    if(!['Fail','Blocked','Pending Development','New Development'].includes(x.status)) return false;
+    if(!['Fail','Blocked','Pending Development'].includes(x.status)) return false;
     if(['Completed','Not Applicable','On Hold','Ready for Deployment'].includes(x.resolveStatus)) return false;
     return true;
   }
@@ -1968,7 +1982,7 @@ function isReadyForDeployment(x) {
   if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus === 'Ready for Deployment') return true;
   const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
   if(noCycleActive) {
-    return ['Fail','Blocked','Pending Development','New Development'].includes(x.status)
+    return ['Fail','Blocked','Pending Development'].includes(x.status)
       && x.resolveStatus === 'Ready for Deployment';
   }
   return false;
@@ -1983,7 +1997,7 @@ function isOnHoldDefect(x) {
   // Main test on hold
   const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
   if(noCycleActive) {
-    return ['Fail','Blocked','Pending Development','New Development'].includes(x.status)
+    return ['Fail','Blocked','Pending Development'].includes(x.status)
       && x.resolveStatus === 'On Hold';
   }
   return false;
@@ -2002,7 +2016,7 @@ function isUnassignedDefect(x) {
   }
   const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
   if(noCycleActive) {
-    if(!['Fail','Blocked','Pending Development','New Development'].includes(x.status)) return false;
+    if(!['Fail','Blocked','Pending Development'].includes(x.status)) return false;
     if(['Completed','Not Applicable','On Hold','Ready for Deployment'].includes(x.resolveStatus)) return false;
     return !(x.feDev || x.beDev || x.valDev);
   }
@@ -2023,6 +2037,7 @@ function updateBadges() {
     });
   }).length);
   setBadge('chronicBadge',   t.filter(isChronic).length);
+  setBadge('newDevBadge',    t.filter(x => x.status==='New Development').length);
   const activeDefects = t.filter(isOpenDevDefect).length;
   const onHoldDefects  = t.filter(isOnHoldDefect).length;
   const deployDefects  = t.filter(isReadyForDeployment).length;
@@ -3288,6 +3303,36 @@ function renderBlockedTests(){
       </div>`:''}
     </div>`;
   }).join('');
+}
+
+// ─── NEW DEVELOPMENT ───────────────────────────────────────────
+function renderNewDevTests(){
+  const el=document.getElementById('newDevBody');
+  if(!el) return;
+  const eff=effectiveApp('newDevAppFilter');
+  let tests=roundTests().filter(t=>t.status==='New Development');
+  if(eff!=='all')tests=tests.filter(t=>t.appId===eff);
+  if(!tests.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">🧬</div><p>No new development items right now.</p></div>`;return;}
+  el.innerHTML=`<div class="table-wrap"><table>
+    <thead><tr><th>Test ID</th><th>Application</th><th>Section</th><th>Test Script</th><th>Priority</th><th>Developer</th><th>Tester Notes</th><th>Action</th></tr></thead>
+    <tbody>${tests.map(t=>{
+      const app=DB.applications.find(a=>a.id===t.appId);
+      const devs=[t.feDev,t.beDev,t.valDev].filter(Boolean).join(', ')||'—';
+      const hasDevAssigned=t.feDev||t.beDev||t.valDev;
+      return `<tr>
+        <td class="td-mono"><a href="#" onclick="openEditModal('${t.id}');return false;">${t.id}</a></td>
+        <td style="font-size:11px;">${app?.name||t.appId}</td>
+        <td style="font-size:11px;">${t.section||'—'}</td>
+        <td class="td-truncate" style="max-width:220px;" title="${escHtml(t.script)}">${escHtml(t.script)}</td>
+        <td>${t.priority?priorityBadge(t.priority):'—'}</td>
+        <td style="font-size:11px;">${escHtml(devs)}</td>
+        <td class="td-truncate" style="max-width:160px;font-size:11px;" title="${escHtml(t.remarks||'')}">${escHtml(t.remarks||'—')}</td>
+        <td>${hasDevAssigned
+          ? `<button class="btn btn-secondary btn-sm" onclick="openEditModal('${t.id}')">Edit</button>`
+          : `<button class="btn-icon" onclick="openEditModal('${t.id}');switchTestTab('dev',null)" title="Assign a developer">👤 Assign</button>`}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
 }
 
 // ─── CHRONIC FAILURES ──────────────────────────────────────────
