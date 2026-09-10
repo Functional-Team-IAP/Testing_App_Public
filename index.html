@@ -413,6 +413,10 @@ textarea.form-control{resize:none;min-height:72px;overflow-y:hidden;}
       <span class="nav-icon">🚫</span> Blocked Tests
       <span class="nav-badge" id="blockedBadge" style="display:none">0</span>
     </div>
+    <div class="nav-item" onclick="navigate('newdev')" data-page="newdev">
+      <span class="nav-icon">🆕</span> New Development
+      <span class="nav-badge" id="newDevBadge" style="display:none">0</span>
+    </div>
     <div class="nav-item" onclick="navigate('chronic')" data-page="chronic">
       <span class="nav-icon">🔥</span> Chronic Failures
       <span class="nav-badge orange" id="chronicBadge" style="display:none">0</span>
@@ -551,6 +555,15 @@ textarea.form-control{resize:none;min-height:72px;overflow-y:hidden;}
         <select class="form-control" style="width:180px;" id="blockedAppFilter" onchange="renderBlockedTests()"><option value="all">All Applications</option></select>
       </div>
       <div id="blockedTestsBody"></div>
+    </div>
+
+    <!-- ─── NEW DEVELOPMENT ───────────────────────────────────── -->
+    <div id="page-newdev" class="page">
+      <div class="section-header">
+        <div><div class="section-title">New Development</div><div class="section-sub">Tests marked as new feature development</div></div>
+        <select class="form-control" style="width:180px;" id="newDevAppFilter" onchange="renderNewDevTests()"><option value="all">All Applications</option></select>
+      </div>
+      <div id="newDevTestsBody"></div>
     </div>
 
     <!-- ─── CHRONIC FAILURES ───────────────────────────────────── -->
@@ -1339,7 +1352,7 @@ async function refreshFromGitHub() {
     updateBadges();
     renderDashboard();
     // Re-render whichever page is active
-    const pages = ['tests','retest','blocked','chronic','apps','config'];
+    const pages = ['tests','retest','blocked','newdev','chronic','apps','config'];
     pages.forEach(p => {
       if(document.getElementById('page-'+p)?.classList.contains('active')) navigate(p);
     });
@@ -1643,7 +1656,7 @@ async function pushToGitHub(_attempt) {
 // Re-renders whichever page is currently on screen — used after a merge
 // pulls in other people's changes so the UI reflects the merged result.
 function refreshVisiblePage() {
-  const pages = ['dashboard','tests','retest','blocked','chronic','devview','onhold','pipeline','apps','config','bulk'];
+  const pages = ['dashboard','tests','retest','blocked','newdev','chronic','devview','onhold','pipeline','apps','config','bulk'];
   pages.forEach(pg => {
     if(document.getElementById('page-'+pg)?.classList.contains('active')) navigate(pg);
   });
@@ -1853,7 +1866,7 @@ function isChronic(t)  { return cycleCount(t)>=3; }
 // ─── NAVIGATION ───────────────────────────────────────────────
 const PAGE_LABELS = {
   dashboard:'Dashboard',apps:'Applications',tests:'Test Tracker',devview:'My Defects',
-  retest:'Retest Queue',blocked:'Blocked Tests',chronic:'Chronic Failures',
+  retest:'Retest Queue',blocked:'Blocked Tests',newdev:'New Development',chronic:'Chronic Failures',
   pipeline:'Pipeline', bulk:'Bulk Upload',config:'Configuration'
 };
 
@@ -1868,6 +1881,7 @@ function navigate(page) {
   if(page==='tests')     { populateFilters(); renderTestTable(); }
   if(page==='retest')    renderRetestQueue();
   if(page==='blocked')   renderBlockedTests();
+  if(page==='newdev')    renderNewDevTests();
   if(page==='chronic')   renderChronicFailures();
   if(page==='bulk')      { /* bulk page is self-contained */ }
   if(page==='config')    renderConfig();
@@ -1894,7 +1908,7 @@ function navigate(page) {
 function onGlobalAppChange() {
   // Global filter removed — each page manages its own filter
   window._activeModuleFilter=null; window._activeAppFilter=null;
-  ['dashAppFilter','retestAppFilter','blockedAppFilter','chronicAppFilter'].forEach(id=>{
+  ['dashAppFilter','retestAppFilter','blockedAppFilter','newDevAppFilter','chronicAppFilter'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value=v;
   });
   const fa=document.getElementById('fApp'); if(fa) fa.value=(window._activeAppFilter||'');
@@ -1924,7 +1938,7 @@ function populateAppSelects() {
     groupedOpts += `<optgroup label="No Module">` + orphans.map(a=>`<option value="${a.id}">${a.name}</option>`).join('') + '</optgroup>';
   }
 
-  ['dashAppFilter','retestAppFilter','blockedAppFilter','chronicAppFilter'].forEach(id=>{
+  ['dashAppFilter','retestAppFilter','blockedAppFilter','newDevAppFilter','chronicAppFilter'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.innerHTML=allOpt+groupedOpts;
   });
 
@@ -2038,7 +2052,9 @@ function isUnassignedDefect(x) {
   }
   const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
   if(noCycleActive) {
-    if(!['Fail','Blocked','Pending Development','New Development'].includes(x.status)) return false;
+    // Blocked and New Development have their own dedicated pages already —
+    // don't double-count them here even if nobody's assigned yet.
+    if(!['Fail','Pending Development'].includes(x.status)) return false;
     if(['Completed','Not Applicable','On Hold','Ready for Deployment'].includes(x.resolveStatus)) return false;
     return !(x.feDev || x.beDev || x.valDev);
   }
@@ -2059,6 +2075,7 @@ function updateBadges() {
     });
   }).length);
   setBadge('chronicBadge',   t.filter(isChronic).length);
+  setBadge('newDevBadge',    t.filter(x => x.status==='New Development').length);
   const activeDefects = t.filter(isOpenDevDefect).length;
   const onHoldDefects  = t.filter(isOnHoldDefect).length;
   const deployDefects  = t.filter(isReadyForDeployment).length;
@@ -3279,6 +3296,25 @@ function renderBlockedTests(){
         ${deps.map(d=>{const ref=DB.tests.find(tt=>tt.id===d);const resolved=ref?.resolveStatus==='Completed';return`<div class="dep-item"><div><span class="td-mono">${d}</span>${ref?` — <span style="font-size:11px;color:var(--text2);">${escHtml(ref.script.substring(0,60))}</span>`:' (not found)'} ${resolved?'✅':'⚠️'}</div></div>`;}).join('')}
         ${unres.length?`<div class="blocked-warning">⚠️ ${unres.length} unresolved: ${unres.join(', ')}</div>`:`<div class="alert alert-success" style="margin-top:8px;">✅ All dependencies resolved.</div>`}
       </div>`:''}
+    </div>`;
+  }).join('');
+}
+
+// ─── NEW DEVELOPMENT ────────────────────────────────────────────
+function renderNewDevTests(){
+  const el=document.getElementById('newDevTestsBody');
+  const eff=effectiveApp('newDevAppFilter');
+  let tests=roundTests().filter(t=>t.status==='New Development');
+  if(eff!=='all')tests=tests.filter(t=>t.appId===eff);
+  if(!tests.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">🆕</div><p>No tests currently marked as New Development.</p></div>`;return;}
+  el.innerHTML=tests.map(t=>{
+    const app=DB.applications.find(a=>a.id===t.appId);
+    return `<div class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div><div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">${`<span class="td-mono">${t.id}</span>`}${statusBadge(t.status)}${priorityBadge(t.priority)}<span style="font-size:11px;color:var(--text2);">${app?.name||t.appId}</span></div>
+        <div style="font-size:13px;">${escHtml(t.script)}</div><div style="font-size:12px;color:var(--text3);margin-top:3px;">Tester: ${t.tester||'—'} · Section: ${t.section||'—'} · Developers: ${[t.feDev,t.beDev,t.valDev].filter(Boolean).join(', ')||'—'}</div></div>
+        <button class="btn btn-secondary btn-sm" onclick="openEditModal('${t.id}')">Edit</button>
+      </div>
     </div>`;
   }).join('');
 }
