@@ -413,10 +413,6 @@ textarea.form-control{resize:none;min-height:72px;overflow-y:hidden;}
       <span class="nav-icon">🚫</span> Blocked Tests
       <span class="nav-badge" id="blockedBadge" style="display:none">0</span>
     </div>
-    <div class="nav-item" onclick="navigate('newdev')" data-page="newdev">
-      <span class="nav-icon">🧬</span> New Development
-      <span class="nav-badge" id="newDevBadge" style="display:none">0</span>
-    </div>
     <div class="nav-item" onclick="navigate('chronic')" data-page="chronic">
       <span class="nav-icon">🔥</span> Chronic Failures
       <span class="nav-badge orange" id="chronicBadge" style="display:none">0</span>
@@ -555,15 +551,6 @@ textarea.form-control{resize:none;min-height:72px;overflow-y:hidden;}
         <select class="form-control" style="width:180px;" id="blockedAppFilter" onchange="renderBlockedTests()"><option value="all">All Applications</option></select>
       </div>
       <div id="blockedTestsBody"></div>
-    </div>
-
-    <!-- ─── NEW DEVELOPMENT ────────────────────────────────────── -->
-    <div id="page-newdev" class="page">
-      <div class="section-header">
-        <div><div class="section-title">🧬 New Development</div><div class="section-sub">Tests flagged as new development work, separate from retest failures</div></div>
-        <select class="form-control" style="width:180px;" id="newDevAppFilter" onchange="renderNewDevTests()"><option value="all">All Applications</option></select>
-      </div>
-      <div id="newDevBody"></div>
     </div>
 
     <!-- ─── CHRONIC FAILURES ───────────────────────────────────── -->
@@ -1152,9 +1139,12 @@ function renderRoundList() {
     const pct = testCount ? Math.round(passCount/testCount*100) : 0;
     const isActive = r.id === currentRoundId;
     return `<div onclick="selectRound('${r.id}')"
-      style="border:2px solid ${isActive?'var(--accent)':'var(--border)'};border-radius:8px;padding:12px 16px;cursor:pointer;transition:.15s;background:${isActive?'rgba(59,111,212,.06)':'var(--bg3)'};"
+      style="border:2px solid ${isActive?'var(--accent)':'var(--border)'};border-radius:8px;padding:12px 16px;cursor:pointer;transition:.15s;background:${isActive?'rgba(59,111,212,.06)':'var(--bg3)'};position:relative;"
       onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='${isActive?'var(--accent)':'var(--border)'}'">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <button onclick="event.stopPropagation();confirmDeleteRound('${r.id}')" title="Delete this round"
+        style="position:absolute;top:8px;right:8px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:4px 6px;border-radius:4px;line-height:1;"
+        onmouseenter="this.style.color='var(--red)';this.style.background='var(--red-dim, rgba(220,38,38,.1))'" onmouseleave="this.style.color='var(--text3)';this.style.background='none'">🗑</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-right:24px;">
         <div>
           <div style="font-size:14px;font-weight:700;color:${isActive?'var(--accent)':'var(--text)'};">
             ${isActive?'✓ ':''}${escHtml(r.name)}
@@ -1173,6 +1163,38 @@ function renderRoundList() {
       </div>` : ''}
     </div>`;
   }).join('');
+}
+
+// Confirms and permanently deletes a round along with every test scoped to
+// it. Tombstones the round and its tests so a merge with another teammate's
+// (stale) copy of the file can't silently bring the round back.
+function confirmDeleteRound(roundId) {
+  const round = (DB.rounds||[]).find(r => r.id === roundId);
+  if(!round) return;
+  const testIds = (DB.tests||[]).filter(t => t.roundId === roundId).map(t => t.id);
+  const testCount = testIds.length;
+  const warning = testCount
+    ? `Delete "${round.name}"? This will permanently delete it AND all ${testCount} test${testCount!==1?'s':''} in it. Other rounds are not affected. This cannot be undone.`
+    : `Delete "${round.name}"? This cannot be undone.`;
+  if(!confirm(warning)) return;
+
+  markDeleted('rounds', roundId);
+  if(testCount) markDeleted('tests', testIds);
+  DB.rounds = DB.rounds.filter(r => r.id !== roundId);
+  DB.tests = (DB.tests||[]).filter(t => t.roundId !== roundId);
+
+  // If the deleted round was the active one, fall back to another round (or none)
+  if(currentRoundId === roundId) {
+    const next = DB.rounds.length ? DB.rounds[DB.rounds.length-1].id : null;
+    currentRoundId = next;
+    if(next) localStorage.setItem('iap_current_round', next);
+    else localStorage.removeItem('iap_current_round');
+    updateRoundIndicator();
+  }
+
+  save();
+  populateAppSelects(); populateFilters(); updateBadges(); renderDashboard();
+  renderRoundList();
 }
 
 function selectRound(roundId) {
@@ -1315,12 +1337,12 @@ async function refreshFromGitHub() {
     populateAppSelects();
     populateFilters();
     updateBadges();
-    // Re-render whichever page is active — use the full page list (same one
-    // the background poll uses) so pages like My Defects / On Hold actually
-    // re-render against the freshly loaded, correctly round-scoped data
-    // instead of silently keeping whatever was on screen before the refresh
-    // (which could be stale rows from a previously viewed round).
-    refreshVisiblePage();
+    renderDashboard();
+    // Re-render whichever page is active
+    const pages = ['tests','retest','blocked','chronic','apps','config'];
+    pages.forEach(p => {
+      if(document.getElementById('page-'+p)?.classList.contains('active')) navigate(p);
+    });
   }
 }
 
@@ -1489,13 +1511,14 @@ function mergeDB(localDB, remoteDB) {
   const tombstones = {
     tests: mergeTombstones(lts.tests, rts.tests),
     applications: mergeTombstones(lts.applications, rts.applications),
+    rounds: mergeTombstones(lts.rounds, rts.rounds),
     config: configTombstones
   };
   return {
     ...remoteDB, ...localDB,
     modules:      mergeCollection(localDB.modules, remoteDB.modules),
     applications: mergeCollection(localDB.applications, remoteDB.applications, tombstones.applications),
-    rounds:       mergeCollection(localDB.rounds, remoteDB.rounds),
+    rounds:       mergeCollection(localDB.rounds, remoteDB.rounds, tombstones.rounds),
     tests:        mergeCollection(localDB.tests, remoteDB.tests, tombstones.tests),
     config:       mergeConfigLists(localDB.config, remoteDB.config, configTombstones),
     _tombstones:  tombstones
@@ -1620,7 +1643,7 @@ async function pushToGitHub(_attempt) {
 // Re-renders whichever page is currently on screen — used after a merge
 // pulls in other people's changes so the UI reflects the merged result.
 function refreshVisiblePage() {
-  const pages = ['dashboard','tests','retest','blocked','newdev','chronic','devview','onhold','pipeline','apps','config','bulk'];
+  const pages = ['dashboard','tests','retest','blocked','chronic','devview','onhold','pipeline','apps','config','bulk'];
   pages.forEach(pg => {
     if(document.getElementById('page-'+pg)?.classList.contains('active')) navigate(pg);
   });
@@ -1830,7 +1853,7 @@ function isChronic(t)  { return cycleCount(t)>=3; }
 // ─── NAVIGATION ───────────────────────────────────────────────
 const PAGE_LABELS = {
   dashboard:'Dashboard',apps:'Applications',tests:'Test Tracker',devview:'My Defects',
-  retest:'Retest Queue',blocked:'Blocked Tests',chronic:'Chronic Failures',newdev:'New Development',
+  retest:'Retest Queue',blocked:'Blocked Tests',chronic:'Chronic Failures',
   pipeline:'Pipeline', bulk:'Bulk Upload',config:'Configuration'
 };
 
@@ -1845,7 +1868,6 @@ function navigate(page) {
   if(page==='tests')     { populateFilters(); renderTestTable(); }
   if(page==='retest')    renderRetestQueue();
   if(page==='blocked')   renderBlockedTests();
-  if(page==='newdev')    renderNewDevTests();
   if(page==='chronic')   renderChronicFailures();
   if(page==='bulk')      { /* bulk page is self-contained */ }
   if(page==='config')    renderConfig();
@@ -1902,7 +1924,7 @@ function populateAppSelects() {
     groupedOpts += `<optgroup label="No Module">` + orphans.map(a=>`<option value="${a.id}">${a.name}</option>`).join('') + '</optgroup>';
   }
 
-  ['dashAppFilter','retestAppFilter','blockedAppFilter','newDevAppFilter','chronicAppFilter'].forEach(id=>{
+  ['dashAppFilter','retestAppFilter','blockedAppFilter','chronicAppFilter'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.innerHTML=allOpt+groupedOpts;
   });
 
@@ -1968,7 +1990,7 @@ function isOpenDevDefect(x) {
   // Main test fail/blocked — only if no active unresolved cycle
   const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
   if(noCycleActive) {
-    if(!['Fail','Pending Development'].includes(x.status)) return false;
+    if(!['Fail','Blocked','Pending Development','New Development'].includes(x.status)) return false;
     if(['Completed','Not Applicable','On Hold','Ready for Deployment'].includes(x.resolveStatus)) return false;
     return true;
   }
@@ -1982,7 +2004,7 @@ function isReadyForDeployment(x) {
   if(lc && ['Fail','Failed'].includes(lc.retestStatus) && lc.resolveStatus === 'Ready for Deployment') return true;
   const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
   if(noCycleActive) {
-    return ['Fail','Pending Development'].includes(x.status)
+    return ['Fail','Blocked','Pending Development','New Development'].includes(x.status)
       && x.resolveStatus === 'Ready for Deployment';
   }
   return false;
@@ -1997,7 +2019,7 @@ function isOnHoldDefect(x) {
   // Main test on hold
   const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
   if(noCycleActive) {
-    return ['Fail','Pending Development'].includes(x.status)
+    return ['Fail','Blocked','Pending Development','New Development'].includes(x.status)
       && x.resolveStatus === 'On Hold';
   }
   return false;
@@ -2016,7 +2038,7 @@ function isUnassignedDefect(x) {
   }
   const noCycleActive = !lc || ['Pass','Passed'].includes(lc.retestStatus);
   if(noCycleActive) {
-    if(!['Fail','Pending Development'].includes(x.status)) return false;
+    if(!['Fail','Blocked','Pending Development','New Development'].includes(x.status)) return false;
     if(['Completed','Not Applicable','On Hold','Ready for Deployment'].includes(x.resolveStatus)) return false;
     return !(x.feDev || x.beDev || x.valDev);
   }
@@ -2037,7 +2059,6 @@ function updateBadges() {
     });
   }).length);
   setBadge('chronicBadge',   t.filter(isChronic).length);
-  setBadge('newDevBadge',    t.filter(x => x.status==='New Development').length);
   const activeDefects = t.filter(isOpenDevDefect).length;
   const onHoldDefects  = t.filter(isOnHoldDefect).length;
   const deployDefects  = t.filter(isReadyForDeployment).length;
@@ -2688,9 +2709,7 @@ function onResolveStatusChange() {
     // Auto-create Retest Cycle 1 with "Ready for Retest" if no cycles exist yet
     if(workingCycles.length === 0) {
       const tester   = document.getElementById('f_tester')?.value || '';
-      const newCycle = makeCycle(1, '', tester, 'Not Started', '', '', '', '', '');
-      newCycle._autoCreated = true; // tag so an accidental "Completed" can be undone cleanly
-      workingCycles.push(newCycle);
+      workingCycles.push(makeCycle(1, '', tester, 'Not Started', '', '', '', '', ''));
       updateCycleTabBadge();
       renderCycleList();
       // Flash the Retest Cycles tab to signal it was updated
@@ -2701,32 +2720,7 @@ function onResolveStatusChange() {
         setTimeout(() => cycleTab.style.color = '', 1500);
       }
     }
-  } else {
-    // Undo path: Resolve Status was just changed AWAY from "Completed" (e.g. it
-    // was set to Completed by mistake). If Cycle 1 was auto-created by that same
-    // toggle and nobody has actually touched it yet, remove it — otherwise the
-    // test gets stuck showing as "in retest" forever instead of falling back to
-    // whichever section its resolve status now correctly belongs in (Active /
-    // On Hold / Ready for Deployment / etc).
-    const last = workingCycles[workingCycles.length - 1];
-    if(workingCycles.length === 1 && last && isCycleUntouched(last)) {
-      workingCycles.pop();
-      updateCycleTabBadge();
-      renderCycleList();
-    }
   }
-}
-
-// A cycle is "untouched" if it's still exactly as auto-generated — nobody has
-// logged a retest date, result, remarks, dev notes, dev assignment, or
-// resolve status against it. Safe to silently discard; anything else means
-// real work may have already happened on it, so it's left alone.
-function isCycleUntouched(c) {
-  return (!c.retestStatus || c.retestStatus === 'Not Started')
-    && !c.retestDate && !c.remarks && !c.devNotes && !c.devCycleStart
-    && !c.cycleFeDev && !c.cycleBeDev && !c.cycleValDev
-    && !c.resolveStatus && !c.resolvedDate
-    && (!c.retestPriority || c.retestPriority === 'Medium');
 }
 
 // ─── RETEST CYCLE MANAGEMENT (in-modal) ───────────────────────
@@ -2946,29 +2940,13 @@ function toggleCycleCollapse(bodyId, headerEl) {
 
 function updateCycleField(idx, field, val) {
   if(!workingCycles[idx]) return;
-  const prevVal = workingCycles[idx][field];
   workingCycles[idx][field] = val;
   // When a cycle's resolve status becomes Completed, auto-add the next cycle as "Ready for Retest"
   if(field === 'resolveStatus' && val === 'Completed') {
     const c = workingCycles[idx];
     if(['Fail','Failed'].includes(c.retestStatus) && idx === workingCycles.length - 1) {
       const tester = document.getElementById('f_tester')?.value || c.tester || '';
-      const newCycle = makeCycle(workingCycles.length + 1, '', tester, 'Not Started', '', '', '', '', '');
-      newCycle._autoCreated = true; // tag so an accidental "Completed" can be undone cleanly
-      workingCycles.push(newCycle);
-      renderCycleList();
-    }
-  }
-  // Undo path: this cycle's Resolve Status was just changed AWAY from
-  // "Completed" (marked so by mistake). If the very next cycle was auto-created
-  // off the back of that Completed status and hasn't been touched yet, remove
-  // it — so this cycle (and the test) fall back to being classified under
-  // whichever section its resolve status now correctly belongs in (Active /
-  // On Hold / Ready for Deployment) instead of sitting stuck "in retest".
-  if(field === 'resolveStatus' && prevVal === 'Completed' && val !== 'Completed') {
-    const next = workingCycles[idx + 1];
-    if(next && idx === workingCycles.length - 2 && isCycleUntouched(next)) {
-      workingCycles.pop();
+      workingCycles.push(makeCycle(workingCycles.length + 1, '', tester, 'Not Started', '', '', '', '', ''));
       renderCycleList();
     }
   }
@@ -3303,36 +3281,6 @@ function renderBlockedTests(){
       </div>`:''}
     </div>`;
   }).join('');
-}
-
-// ─── NEW DEVELOPMENT ───────────────────────────────────────────
-function renderNewDevTests(){
-  const el=document.getElementById('newDevBody');
-  if(!el) return;
-  const eff=effectiveApp('newDevAppFilter');
-  let tests=roundTests().filter(t=>t.status==='New Development');
-  if(eff!=='all')tests=tests.filter(t=>t.appId===eff);
-  if(!tests.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">🧬</div><p>No new development items right now.</p></div>`;return;}
-  el.innerHTML=`<div class="table-wrap"><table>
-    <thead><tr><th>Test ID</th><th>Application</th><th>Section</th><th>Test Script</th><th>Priority</th><th>Developer</th><th>Tester Notes</th><th>Action</th></tr></thead>
-    <tbody>${tests.map(t=>{
-      const app=DB.applications.find(a=>a.id===t.appId);
-      const devs=[t.feDev,t.beDev,t.valDev].filter(Boolean).join(', ')||'—';
-      const hasDevAssigned=t.feDev||t.beDev||t.valDev;
-      return `<tr>
-        <td class="td-mono"><a href="#" onclick="openEditModal('${t.id}');return false;">${t.id}</a></td>
-        <td style="font-size:11px;">${app?.name||t.appId}</td>
-        <td style="font-size:11px;">${t.section||'—'}</td>
-        <td class="td-truncate" style="max-width:220px;" title="${escHtml(t.script)}">${escHtml(t.script)}</td>
-        <td>${t.priority?priorityBadge(t.priority):'—'}</td>
-        <td style="font-size:11px;">${escHtml(devs)}</td>
-        <td class="td-truncate" style="max-width:160px;font-size:11px;" title="${escHtml(t.remarks||'')}">${escHtml(t.remarks||'—')}</td>
-        <td>${hasDevAssigned
-          ? `<button class="btn btn-secondary btn-sm" onclick="openEditModal('${t.id}')">Edit</button>`
-          : `<button class="btn-icon" onclick="openEditModal('${t.id}');switchTestTab('dev',null)" title="Assign a developer">👤 Assign</button>`}</td>
-      </tr>`;
-    }).join('')}</tbody>
-  </table></div>`;
 }
 
 // ─── CHRONIC FAILURES ──────────────────────────────────────────
@@ -3906,7 +3854,7 @@ function renderOnHoldTab(el) {
 
   const html = devsToShow.map(devName => {
     const defects = [];
-    roundTests().forEach(t => {
+    DB.tests.forEach(t => {
       const lc = latestCycle(t);
       const cycleHasDevs = lc && (lc.cycleFeDev||lc.cycleBeDev||lc.cycleValDev);
       const mainAssigned = t.feDev===devName||t.beDev===devName||t.valDev===devName;
